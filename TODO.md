@@ -45,6 +45,17 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
       section exists in some exports but not in the FY Activity Statement) so the synthetic
       line can be replaced by dated rows.
 - [ ] **M3.2 — Robustness**: multiple statement files in one run, richer error reporting
+- [ ] **M3.3 — More asset classes**: investigate/add further trade categories such as
+      warrants (also structured products, CFDs, mutual funds as they come up). No example
+      CSV available yet — the strict converter will reject the statement when one first
+      appears, which is the signal to add support.
+- [ ] **M3.4 — Forex commission currency**: the Trades Forex header says `Comm in USD`,
+      but the account's base currency *is* USD, so it may really mean "Comm in *base
+      currency*" with a dynamic header. The base currency is available in the statement
+      (`Account Information` → `Base Currency`). When a non-USD-base example exists,
+      check whether the column is named after the base currency and route the commission
+      row to the base-currency file instead of hardcoding USD
+      (`ib_connector/convert.py`, `_convert_forex_trade`).
 - [ ] **M4 — Hosting** *(future)*: web (e.g. FastAPI) and/or Telegram bot front-end reusing the
       same library core; drag-n-drop/upload or direct fetch from IB
 - [ ] **M5 — Xero adaptor** *(future)*: push results straight to Xero via API instead of CSV import
