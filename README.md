@@ -72,9 +72,25 @@ cd IBKR-to-Xero
 pip install -e .
 ```
 
+## Getting the statement
+
+In the IB Client Portal, download an Activity Statement in **CSV** format:
+
+1. Open **Performance & Reports → Statements**:
+
+   ![Performance & Reports menu with Statements highlighted](resources/Step_01.jpg)
+
+2. Under **Default Statements**, run the **Activity Statement**:
+
+   ![Default Statements list with the Activity Statement Run button highlighted](resources/Step_02.jpg)
+
+3. Pick the period (e.g. a custom date range) and click **Download CSV**:
+
+   ![Activity Statement dialog with Custom Date Range and Download CSV highlighted](resources/Step_03_csv.jpg)
+
 ## Usage
 
-Export an Activity Statement from IB Client Portal in **CSV** format, then:
+Once you have the statement CSV:
 
 ```sh
 ibkr2xero statement.csv           # writes next to the statement file
