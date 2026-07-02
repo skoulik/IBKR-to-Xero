@@ -1,0 +1,56 @@
+"""Command-line interface: ib-connector <statement.csv> [-o OUTDIR]."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+from .convert import convert
+from .model import ReconciliationError, StatementError
+from .parser import parse_statement
+from .reconcile import reconcile
+from .writer import write_results
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="ib-connector",
+        description=(
+            "Convert an IB Activity Statement CSV into per-currency Xero import CSVs. "
+            "Refuses to write anything unless cash reconciles per currency."
+        ),
+    )
+    parser.add_argument("statement", type=Path, help="IB Activity Statement CSV file")
+    parser.add_argument(
+        "-o", "--out", type=Path, default=Path("out"), help="output directory (default: out)"
+    )
+    args = parser.parse_args(argv)
+
+    try:
+        statement = parse_statement(args.statement)
+        results = reconcile(statement, convert(statement))
+    except (StatementError, ReconciliationError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        print("no output files were written.", file=sys.stderr)
+        return 2
+
+    print(
+        f"account {statement.account or '?'}, period "
+        f"{statement.period_start} to {statement.period_end}"
+    )
+    paths = write_results(results, args.out)
+    for result, path in zip(results, paths):
+        print(
+            f"  {path}: {len(result.rows)} transactions, "
+            f"cash {result.starting_cash} -> {result.ending_cash}"
+        )
+        for note in result.notes:
+            print(f"    note: {note}")
+    if not paths:
+        print("  no cash activity in any currency; nothing to write")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
