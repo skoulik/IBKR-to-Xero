@@ -38,3 +38,16 @@ def statement_csv() -> Path:
 @pytest.fixture(scope="session")
 def statement(statement_csv):
     return parse_statement(statement_csv)
+
+
+@pytest.fixture(scope="session")
+def fy_statement():
+    """The full-financial-year statement (forex/futures/bonds/corp actions)."""
+    if EXAMPLES.is_dir():
+        for path in sorted(EXAMPLES.glob("*.csv")):
+            if re.fullmatch(r"[A-Z]{3}", path.stem):
+                continue
+            parsed = parse_statement(path)
+            if (parsed.period_end - parsed.period_start).days > 300:
+                return parsed
+    pytest.skip("no full-year example statement in examples/ (gitignored)")

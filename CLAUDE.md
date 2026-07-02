@@ -53,12 +53,32 @@ back a web/Telegram front-end or a Xero API adaptor (see TODO.md M4/M5).
 - Currency rows are identified by a 3-uppercase-letter code; rows with `Total`,
   `Total in USD`, `Base Currency Summary` etc. are aggregates and must be skipped.
   Base currency and `Cash FX Translation Gain/Loss` are out of scope — never convert FX.
-- Trade cash impact = `Proceeds + Comm/Fee` (Comm/Fee already includes GST; the Cash Report
-  splits them into `Commissions` and `GST`).
+- The Cash Report is organised in **blocks** opened by `Starting Cash` rows (base summary
+  first, then one block per currency). Rows must be bucketed by block, not by their own
+  Currency cell — the base block can contain rows labelled with a real currency (e.g. GST).
+- Trade cash impact = `Proceeds + Comm/Fee`. Comm/Fee embeds GST on commissions **and**
+  per-trade transaction fees (HK stamp duty); the Cash Report splits these into
+  `Commissions`, `GST` and `Transaction Fees` components. The Transaction Fees *section*
+  is a breakdown of amounts already inside Comm/Fee — cross-check it, never re-emit it.
+- GST on account fees appears in **no dated row** — only in the `GST` component. The gap
+  between the component and the GST embedded in trades becomes a synthetic `GST` row,
+  guarded by an envelope check (same sign as, and no larger than, the component).
 - Only `DataDiscriminator == "Order"` Trades rows are transactions
   (`SubTotal`/`Total` rows are aggregates).
-- `Cash Settling MTM` (futures cash mark-to-market) has no per-transaction rows —
-  it is delivered as one synthetic output line dated at the statement period end.
-- Output descriptions: stocks `{Qty} {Symbol} price: {T.Price} comm: {Comm/Fee 2dp}`;
+- **Bonds** trade like stocks; coupons and purchase/sale accrued interest arrive as rows
+  of the Interest section (`Bond Interest Paid and Received` component).
+- **Futures** rows carry `Notional Value`, which never touches cash: only the per-trade
+  commission is dated cash; the P/L arrives via `Cash Settling MTM` (one synthetic line,
+  period end, tagged `MTM`).
+- **Forex** trades are transfers between currency accounts: pair `BASE.QUOTE`, base leg =
+  `Quantity`, quote leg (= row's Currency) = `Proceeds`, both tagged `FX` with a shared
+  description; commission is charged in USD (`Comm in USD` column) → USD row tagged `FX-FEE`.
+- **Corporate actions** (splits, mergers, ISIN changes) move shares and sometimes cash
+  (`Proceeds`); their cash flows through the `Trades (Sales)/(Purchase)` components. All
+  rows are emitted verbatim, tagged `CORP` (mostly 0-amount).
+- Cash Report collateral lines (`Starting/Ending Collateral Value`,
+  `Net Securities Lent Activity`, `Net (Settled) Cash Balance`) are SYEP information, not
+  cash flow — ignored.
+- Output descriptions: stocks/bonds `{Qty} {Symbol} price: {T.Price} comm: {Comm/Fee 2dp}`;
   options `{Qty}x{Symbol}`; all other sections pass the statement description through verbatim.
   `Payee` is always `Interactive Brokers`.

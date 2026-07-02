@@ -30,20 +30,30 @@ no output is written**. Wrong output is worse than no output.
 
 | Statement section | Becomes |
 |---|---|
-| Trades — Stocks | `{qty} {symbol} price: {price} comm: {commission}` |
+| Trades — Stocks, Bonds | `{qty} {symbol} price: {price} comm: {commission}` |
 | Trades — Equity and Index Options | `{qty}x{contract}` (premiums, assignments, expiries) |
+| Trades — Forex | a transfer: one leg in each currency's file, tagged `FX`; USD commission row tagged `FX-FEE` |
+| Trades — Futures | per-trade commission rows only (notional never touches cash); P/L via the `MTM` line |
+| Corporate Actions | share movements and residual cash payments, tagged `CORP` |
 | Deposits & Withdrawals | description passed through |
 | Fees | description passed through |
 | Dividends (incl. payments in lieu) | description passed through |
 | Withholding Tax | description passed through |
-| Interest | description passed through |
+| Interest (incl. bond coupons and accrued interest) | description passed through |
 
-Two kinds of synthetic lines may be appended, clearly tagged in the `Reference` column so
-they can be reviewed:
+Per-trade transaction fees (e.g. HK stamp duty) are already embedded in each trade's
+commission; the tool cross-checks the section against the Cash Report instead of
+double-counting it.
+
+Synthetic lines may be appended, clearly tagged in the `Reference` column so they can be
+reviewed:
 
 - **`MTM`** — `Cash Settling MTM` (futures cash mark-to-market): the statement reports it
   as a period total with no per-transaction rows, so it is emitted as one line dated at the
   period end.
+- **`GST`** — GST charged on account fees is reported only as a period total (never as
+  dated rows); the unattributed part is emitted as one line, guarded by a strict envelope
+  check against the Cash Report's GST component.
 - **`ROUNDING`** — the residual from rounding full-precision IB amounts to 2 decimal
   places, only when nonzero and within a strict tolerance (½ cent per line). Anything
   larger is treated as an error and rejects the input.

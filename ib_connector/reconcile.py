@@ -36,24 +36,41 @@ CENT = Decimal("0.01")
 MTM_COMPONENT = "Cash Settling MTM"
 MTM_DESCRIPTION = "Cash Settling MTM (futures)"
 ROUNDING_DESCRIPTION = "Rounding adjustment (2dp vs IB full precision)"
+GST_DESCRIPTION = "GST (not itemised in statement)"
 
 # Cash Report component -> statement section whose converted rows must sum to it.
 _COMPONENT_SECTION = {
     "Trades (Sales)": "Trades",
     "Trades (Purchase)": "Trades",
     "Commissions": "Trades",  # commissions are embedded in each trade's Comm/Fee
-    "GST": "Trades",  # GST on commissions is part of Comm/Fee too
+    "GST": "Trades",  # GST on commissions is part of Comm/Fee (see envelope check)
+    "Transaction Fees": "Trades",  # stamp duty etc. is embedded in trade Comm/Fee too
     "Dividends": "Dividends",
     "Payment In Lieu of Dividends": "Dividends",
     "Withholding Tax": "Withholding Tax",
     "Broker Interest Paid and Received": "Interest",
+    "Bond Interest Paid and Received": "Interest",  # coupons + accrued interest rows
     "Other Fees": "Fees",
     "Deposits": "Deposits & Withdrawals",
     "Withdrawals": "Deposits & Withdrawals",
     "Account Transfers": "Deposits & Withdrawals",
 }
 
-_SPECIAL_COMPONENTS = {"Starting Cash", "Ending Cash", "Ending Settled Cash", MTM_COMPONENT}
+# Converted rows are grouped into check buckets by source section; corporate
+# action cash flows through the Trades (Sales)/(Purchase) components.
+_SECTION_BUCKET = {"Corporate Actions": "Trades"}
+
+# Non-cash informational lines of the Cash Report (Stock Yield Enhancement
+# Program collateral tracking). They sit outside the Starting->Ending cash
+# flow and are excluded from all sums regardless of value.
+_INFORMATIONAL_COMPONENTS = {
+    "Ending Settled Cash",
+    "Starting Collateral Value",
+    "Net Securities Lent Activity",
+    "Ending Collateral Value",
+    "Net Cash Balance",
+    "Net Settled Cash Balance",
+}
 
 
 def _round2(value: Decimal) -> Decimal:
@@ -111,6 +128,14 @@ def reconcile(
     errors: list[str] = []
     results: list[CurrencyResult] = []
 
+    txfees_by_currency: dict[str, Decimal] = {}
+    for row in statement.rows("Transaction Fees"):
+        fee_currency = row.values.get("Currency", "")
+        if CURRENCY_RE.match(fee_currency):
+            txfees_by_currency[fee_currency] = txfees_by_currency.get(
+                fee_currency, Decimal(0)
+            ) + parse_money(row["Amount"])
+
     stray = sorted(set(converted) - set(report))
     if stray:
         errors.append(
@@ -128,7 +153,8 @@ def reconcile(
         except KeyError as exc:
             errors.append(f"{currency}: Cash Report is missing {exc.args[0]!r}")
             continue
-        components.pop("Ending Settled Cash", None)  # settlement timing; not cash flow
+        for informational in _INFORMATIONAL_COMPONENTS:
+            components.pop(informational, None)
         mtm = components.pop(MTM_COMPONENT, None)
 
         # (3) Unknown components: any real cash we don't understand => reject.
@@ -148,7 +174,12 @@ def reconcile(
                 f"(off by {starting + component_sum - ending})"
             )
 
-        # (2) Component sums vs converted section sums.
+        # (2) Component sums vs converted section sums. The GST component
+        # needs an envelope check: the part levied on commissions is embedded
+        # in trade Comm/Fee (so it is already inside the trade rows), but the
+        # part levied on account fees appears in no dated row anywhere in the
+        # statement. That unattributed gap must stay within the GST component
+        # (same sign, not larger), and is emitted as a tagged synthetic row.
         expected_by_section: dict[str, Decimal] = {}
         for component, amount in components.items():
             section = _COMPONENT_SECTION.get(component)
@@ -158,17 +189,39 @@ def reconcile(
                 )
         actual_by_section: dict[str, Decimal] = {}
         for row in rows:
-            actual_by_section[row.source_section] = (
-                actual_by_section.get(row.source_section, Decimal(0)) + row.amount
-            )
+            bucket = _SECTION_BUCKET.get(row.source_section, row.source_section)
+            actual_by_section[bucket] = actual_by_section.get(bucket, Decimal(0)) + row.amount
+        gst = components.get("GST", Decimal(0))
+        gst_gap = Decimal(0)
         for section in sorted(set(expected_by_section) | set(actual_by_section)):
             expected = expected_by_section.get(section, Decimal(0))
             actual = actual_by_section.get(section, Decimal(0))
-            if abs(expected - actual) > EPS:
-                errors.append(
-                    f"{currency}: section {section!r} transactions sum to {actual} "
-                    f"but Cash Report says {expected} (off by {actual - expected})"
-                )
+            gap = expected - actual
+            if abs(gap) <= EPS:
+                continue
+            if (
+                section == "Trades"
+                and gst != 0
+                and (gap < 0) == (gst < 0)
+                and abs(gap) <= abs(gst) + EPS
+            ):
+                gst_gap = gap
+                continue
+            errors.append(
+                f"{currency}: section {section!r} transactions sum to {actual} "
+                f"but Cash Report says {expected} (off by {actual - expected})"
+            )
+
+        # (2b) Transaction Fees (stamp duty etc.) are embedded in trade
+        # Comm/Fee; the section is a breakdown, not extra cash. Its rows must
+        # still sum to the component, or something is off.
+        txfees_section = txfees_by_currency.get(currency, Decimal(0))
+        txfees_component = components.get("Transaction Fees", Decimal(0))
+        if abs(txfees_section - txfees_component) > EPS:
+            errors.append(
+                f"{currency}: Transaction Fees section rows sum to {txfees_section} "
+                f"but Cash Report says {txfees_component}"
+            )
 
         # (4) Synthetic MTM row for futures cash settlement.
         if mtm is not None and mtm != 0:
@@ -182,6 +235,22 @@ def reconcile(
                 )
             )
             notes.append(f"synthetic MTM row for {MTM_COMPONENT}: {mtm}")
+
+        # (4b) Synthetic row for GST charged on account fees: real cash with
+        # no per-item rows in the statement. TODO(TODO.md M3): itemise it if
+        # IB ever exposes a GST details section in this export format.
+        if gst_gap != 0:
+            rows.append(
+                OutputRow(
+                    date=statement.period_end,
+                    amount=gst_gap,
+                    description=GST_DESCRIPTION,
+                    reference="GST",
+                    source_section="",
+                )
+            )
+            notes.append(f"synthetic GST row (GST component {gst}, embedded in trades "
+                         f"{gst - gst_gap}, unattributed {gst_gap})")
 
         if not rows:
             continue  # no cash activity in this currency: no file

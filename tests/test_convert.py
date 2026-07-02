@@ -59,8 +59,8 @@ def _statement_with_trade(category: str) -> Statement:
 
 
 def test_unsupported_asset_category_rejected():
-    with pytest.raises(StatementError, match="unsupported trade asset category 'Futures'"):
-        convert(_statement_with_trade("Futures"))
+    with pytest.raises(StatementError, match="unsupported trade asset category 'Warrants'"):
+        convert(_statement_with_trade("Warrants"))
 
 
 def test_unknown_discriminator_rejected():

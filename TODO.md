@@ -32,8 +32,19 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
 - [x] **M1 — Parser**: multi-section IB CSV → typed model (`parser.py`, `model.py`)
 - [x] **M2 — Converter + reconciliation + writer + CLI**: per-currency CSVs validated
       against `examples/AUD.csv` / `examples/USD.csv`; end-to-end tests
-- [ ] **M3 — Robustness**: more trade asset categories (futures, forex), multiple statement files,
-      richer error reporting
+- [x] **M3 — More asset categories** *(full-FY statement)*: futures (commission rows +
+      Cash Settling MTM), forex (transfer legs in both currency files, tagged `FX`, USD
+      commission tagged `FX-FEE`), bonds (like stocks; coupons/accrued interest via the
+      Interest section), corporate actions (all rows tagged `CORP`, cash via the trades
+      bucket), transaction fees (embedded in trade Comm/Fee — cross-checked, not re-emitted),
+      SYEP collateral lines ignored
+- [ ] **M3.1 — Investigate unattributed GST**: GST charged on account fees (e.g. 10% on AUD
+      withdrawal fees) appears in no dated row of the statement — only as the Cash Report
+      `GST` component. It is currently emitted as a synthetic period-end line tagged `GST`,
+      guarded by an envelope check. Investigate whether IB can itemise it (GST/VAT Details
+      section exists in some exports but not in the FY Activity Statement) so the synthetic
+      line can be replaced by dated rows.
+- [ ] **M3.2 — Robustness**: multiple statement files in one run, richer error reporting
 - [ ] **M4 — Hosting** *(future)*: web (e.g. FastAPI) and/or Telegram bot front-end reusing the
       same library core; drag-n-drop/upload or direct fetch from IB
 - [ ] **M5 — Xero adaptor** *(future)*: push results straight to Xero via API instead of CSV import

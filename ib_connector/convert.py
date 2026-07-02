@@ -30,7 +30,10 @@ _TRADE_DISCRIMINATOR_IS_TXN = {
     "Total": False,
 }
 
-_SUPPORTED_TRADE_CATEGORIES = {"Stocks", "Equity and Index Options"}
+# Cash trades: Proceeds + Comm/Fee hits the row's currency directly.
+# Bonds behave exactly like stocks (accrued interest and coupons arrive
+# separately through the Interest section).
+_CASH_TRADE_CATEGORIES = {"Stocks", "Bonds", "Equity and Index Options"}
 
 # Sections that share the simple Currency/Date/Description/Amount shape,
 # in the output order established by the reference examples.
@@ -52,12 +55,63 @@ def _trade_description(row: SectionRow) -> str:
     qty = row["Quantity"].replace(",", "").strip()
     symbol = row["Symbol"].strip()
     category = row["Asset Category"]
-    if category == "Stocks":
+    if category in ("Stocks", "Bonds"):
         price = row["T. Price"].replace(",", "").strip()
         comm = fmt_number(parse_money(row["Comm/Fee"]).quantize(Decimal("0.01")))
         return f"{qty} {symbol} price: {price} comm: {comm}"
     # Options: "-1xCSL 16JUL26 130 C"
     return f"{qty}x{symbol}"
+
+
+def _convert_forex_trade(row: SectionRow, out: dict[str, list[OutputRow]]) -> None:
+    """A forex trade is a transfer between two currency cash accounts.
+
+    The pair symbol is "BASE.QUOTE" (e.g. AUD.USD). The base account moves by
+    Quantity, the quote account (= the row's Currency column) by Proceeds.
+    Both legs share one description and are tagged FX so they can be matched
+    across the two output files. IB charges the commission in USD regardless
+    of the pair ("Comm in USD" column); it is emitted as a separate USD row
+    tagged FX-FEE.
+    """
+    pair = row["Symbol"].strip()
+    base, _, quote = pair.partition(".")
+    if not (CURRENCY_RE.match(base) and quote == row["Currency"]):
+        raise StatementError(
+            f"line {row.line_no}: cannot understand forex pair {pair!r} "
+            f"with currency {row['Currency']!r}"
+        )
+    date = _parse_date(row["Date/Time"], row)
+    description = f"FX {pair} {row['Quantity'].strip()} @ {row['T. Price'].strip()}"
+    out.setdefault(base, []).append(
+        OutputRow(
+            date=date,
+            amount=parse_money(row["Quantity"]),
+            description=description,
+            reference="FX",
+            source_section="Trades",
+        )
+    )
+    out.setdefault(quote, []).append(
+        OutputRow(
+            date=date,
+            amount=parse_money(row["Proceeds"]),
+            description=description,
+            reference="FX",
+            source_section="Trades",
+        )
+    )
+    comm_text = row["Comm in USD"].strip()
+    comm = parse_money(comm_text) if comm_text else Decimal(0)
+    if comm != 0:
+        out.setdefault("USD", []).append(
+            OutputRow(
+                date=date,
+                amount=comm,
+                description=f"FX {pair} commission",
+                reference="FX-FEE",
+                source_section="Trades",
+            )
+        )
 
 
 def _convert_trades(statement: Statement, out: dict[str, list[OutputRow]]) -> None:
@@ -71,23 +125,62 @@ def _convert_trades(statement: Statement, out: dict[str, list[OutputRow]]) -> No
         if not is_txn:
             continue
         category = row["Asset Category"]
-        if category not in _SUPPORTED_TRADE_CATEGORIES:
-            raise StatementError(
-                f"line {row.line_no}: unsupported trade asset category {category!r} "
-                f"(supported: {sorted(_SUPPORTED_TRADE_CATEGORIES)})"
-            )
         currency = row["Currency"]
         if not CURRENCY_RE.match(currency):
             raise StatementError(
                 f"line {row.line_no}: trade Order row with non-currency {currency!r}"
             )
-        amount = parse_money(row["Proceeds"]) + parse_money(row["Comm/Fee"])
+        if category == "Forex":
+            _convert_forex_trade(row, out)
+        elif category == "Futures":
+            # Futures notional never touches cash: the P/L arrives via the
+            # Cash Report's "Cash Settling MTM" (one synthetic row per
+            # period); only the per-trade commission is real dated cash.
+            out.setdefault(currency, []).append(
+                OutputRow(
+                    date=_parse_date(row["Date/Time"], row),
+                    amount=parse_money(row["Comm/Fee"]),
+                    description=f"{row['Quantity'].strip()}x{row['Symbol'].strip()} "
+                    "futures commission",
+                    source_section="Trades",
+                )
+            )
+        elif category in _CASH_TRADE_CATEGORIES:
+            amount = parse_money(row["Proceeds"]) + parse_money(row["Comm/Fee"])
+            out.setdefault(currency, []).append(
+                OutputRow(
+                    date=_parse_date(row["Date/Time"], row),
+                    amount=amount,
+                    description=_trade_description(row),
+                    source_section="Trades",
+                )
+            )
+        else:
+            raise StatementError(
+                f"line {row.line_no}: unsupported trade asset category {category!r} "
+                f"(supported: {sorted(_CASH_TRADE_CATEGORIES | {'Forex', 'Futures'})})"
+            )
+
+
+def _convert_corporate_actions(statement: Statement, out: dict[str, list[OutputRow]]) -> None:
+    """Corporate actions move shares and sometimes cash (mergers pay a
+    residual). Every row is emitted with its cash Proceeds (usually 0, so
+    splits and ISIN changes stay visible unless --skip-zero) and the
+    statement's description verbatim, tagged CORP. The cash flows through
+    the Cash Report's Trades (Sales)/(Purchase) components, so these rows
+    are cross-checked as part of the trades bucket.
+    """
+    for row in statement.rows("Corporate Actions"):
+        currency = row.values.get("Currency", "")
+        if not CURRENCY_RE.match(currency):
+            continue  # "Total"/"Total in USD" aggregates
         out.setdefault(currency, []).append(
             OutputRow(
                 date=_parse_date(row["Date/Time"], row),
-                amount=amount,
-                description=_trade_description(row),
-                source_section="Trades",
+                amount=parse_money(row["Proceeds"]),
+                description=row["Description"].strip(),
+                reference="CORP",
+                source_section="Corporate Actions",
             )
         )
 
@@ -118,6 +211,7 @@ def convert(statement: Statement) -> dict[str, list[OutputRow]]:
     """
     out: dict[str, list[OutputRow]] = {}
     _convert_trades(statement, out)
+    _convert_corporate_actions(statement, out)
     for section in _SIMPLE_SECTIONS:
         _convert_simple_section(statement, section, out)
     return out
