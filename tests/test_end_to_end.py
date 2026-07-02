@@ -52,7 +52,7 @@ def test_cli_skip_zero(statement_csv, tmp_path, capsys):
     default_dir = tmp_path / "default"
     skip_dir = tmp_path / "skip"
     assert main([str(statement_csv), "-o", str(default_dir)]) == 0
-    assert main([str(statement_csv), "-o", str(skip_dir), "--skip-zero"]) == 0
+    assert main([str(statement_csv), "-o", str(skip_dir), "--skip-zero-transactions"]) == 0
 
     for name in ("AUD.csv", "USD.csv"):
         default_rows = _read(default_dir / name)
@@ -80,10 +80,10 @@ def test_cli_refuses_to_overwrite_without_force(statement_csv, tmp_path, capsys)
     assert main([str(statement_csv), "-o", str(tmp_path)]) == 2
     err = capsys.readouterr().err
     assert "already exist" in err
-    assert "--force" in err
+    assert "--force-overwrite" in err
     assert (tmp_path / "AUD.csv").read_bytes() == before
-    # --force allows the rewrite.
-    assert main([str(statement_csv), "-o", str(tmp_path), "--force"]) == 0
+    # --force-overwrite allows the rewrite.
+    assert main([str(statement_csv), "-o", str(tmp_path), "--force-overwrite"]) == 0
 
 
 def test_cli_rejects_tampered_input(statement_csv, tmp_path, capsys):

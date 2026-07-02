@@ -24,19 +24,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("statement", type=Path, help="IB Activity Statement CSV file")
     parser.add_argument(
         "-o",
-        "--out",
+        "--output-dir",
         type=Path,
         default=None,
         help="output directory (default: the statement file's directory)",
     )
     parser.add_argument(
         "-f",
-        "--force",
+        "--force-overwrite",
         action="store_true",
         help="overwrite existing output files (default: abort without writing anything)",
     )
     parser.add_argument(
-        "--skip-zero",
+        "-s",
+        "--skip-zero-transactions",
         action="store_true",
         help="omit zero-amount transactions (e.g. option expiries) from the output; "
         "they carry no cash and Xero discards them on import anyway",
@@ -51,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         print("no output files were written.", file=sys.stderr)
         return 2
 
-    if args.skip_zero:
+    if args.skip_zero_transactions:
         # Safe only after reconciliation: zero rows contribute nothing to the
         # sums, so dropping them cannot mask a mismatch.
         for result in results:
@@ -68,12 +69,15 @@ def main(argv: list[str] | None = None) -> int:
         f"account {statement.account or '?'}, period "
         f"{statement.period_start} to {statement.period_end}"
     )
-    out_dir = args.out if args.out is not None else args.statement.parent
+    out_dir = args.output_dir if args.output_dir is not None else args.statement.parent
     try:
-        paths = write_results(results, out_dir, overwrite=args.force)
+        paths = write_results(results, out_dir, overwrite=args.force_overwrite)
     except FileExistsError as exc:
         print(f"error: {exc}", file=sys.stderr)
-        print("no output files were written. Use --force to overwrite.", file=sys.stderr)
+        print(
+            "no output files were written. Use --force-overwrite to overwrite.",
+            file=sys.stderr,
+        )
         return 2
     for result, path in zip(results, paths):
         print(

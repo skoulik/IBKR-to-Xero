@@ -82,11 +82,11 @@ ib-connector statement.csv -o out/   # or into a chosen directory
 ```
 
 Existing output files are never overwritten: the run aborts without writing anything
-unless `--force` is given.
+unless `--force-overwrite` is given.
 
 Zero-amount transactions (e.g. option expiries) are included by default so the output
-mirrors the statement; pass `--skip-zero` to omit them (they carry no cash and Xero
-discards them on import anyway).
+mirrors the statement; pass `-s`/`--skip-zero-transactions` to omit them (they carry no
+cash and Xero discards them on import anyway).
 
 ```
 account U1234567, period 2026-06-01 to 2026-06-30
