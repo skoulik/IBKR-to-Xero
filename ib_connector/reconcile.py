@@ -249,8 +249,13 @@ def reconcile(
                     source_section="",
                 )
             )
-            notes.append(f"synthetic GST row (GST component {gst}, embedded in trades "
-                         f"{gst - gst_gap}, unattributed {gst_gap})")
+            # Display quantized to cents: IB truncates Cash Report components
+            # at ~9 decimals, so raw embedded/unattributed figures can carry
+            # nanocent dust that is just their display rounding, not cash.
+            notes.append(
+                f"synthetic GST row (GST component {gst}, embedded in trades "
+                f"{_round2(gst - gst_gap)}, unattributed {_round2(gst_gap)})"
+            )
 
         if not rows:
             continue  # no cash activity in this currency: no file
