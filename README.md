@@ -1,4 +1,4 @@
-# IB-connector
+# IBKR-to-Xero
 
 Convert an Interactive Brokers **Activity Statement** into per-currency CSV files ready for
 import into [Xero](https://www.xero.com/) (or any tool that accepts Xero's bank-statement
@@ -16,7 +16,7 @@ CSV format) — with **strict cash reconciliation** built in.
 
 Feeding brokerage activity into accounting software by hand is tedious and error-prone.
 The IB Activity Statement contains everything needed, but as a single multi-section CSV
-mixing many currencies with base-currency summaries. IB-connector extracts the actual cash
+mixing many currencies with base-currency summaries. IBKR-to-Xero extracts the actual cash
 movements per currency and — crucially — **proves that they add up before writing anything**:
 
 > For every currency: `Starting Cash + Σ(transactions) = Ending Cash`
@@ -67,8 +67,8 @@ currency.
 Requires Python 3.11+. No runtime dependencies (standard library only).
 
 ```sh
-git clone https://github.com/skoulik/IB-connector.git
-cd IB-connector
+git clone https://github.com/skoulik/IBKR-to-Xero.git
+cd IBKR-to-Xero
 pip install -e .
 ```
 
@@ -77,8 +77,8 @@ pip install -e .
 Export an Activity Statement from IB Client Portal in **CSV** format, then:
 
 ```sh
-ib-connector statement.csv           # writes next to the statement file
-ib-connector statement.csv -o out/   # or into a chosen directory
+ibkr2xero statement.csv           # writes next to the statement file
+ibkr2xero statement.csv -o out/   # or into a chosen directory
 ```
 
 Existing output files are never overwritten: the run aborts without writing anything
@@ -132,7 +132,7 @@ absent.
 
 ## Roadmap
 
-- More trade asset categories (futures, forex)
+- More trade asset categories (warrants, structured products) as examples appear
 - Web / Telegram bot front-end over the same library core
 - Direct Xero API integration (skip the CSV import step)
 

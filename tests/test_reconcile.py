@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 
-from ib_connector import ReconciliationError, convert, parse_statement, reconcile
+from ibkr_to_xero import ReconciliationError, convert, parse_statement, reconcile
 
 
 def _pipeline(statement):

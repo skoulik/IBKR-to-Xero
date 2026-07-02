@@ -3,7 +3,7 @@ transaction fees embedded in trade commissions, and unattributed GST."""
 
 from decimal import Decimal
 
-from ib_connector import convert, reconcile
+from ibkr_to_xero import convert, reconcile
 
 
 def _results(fy_statement):

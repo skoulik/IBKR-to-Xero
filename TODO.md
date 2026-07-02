@@ -1,4 +1,4 @@
-# IB-connector — Requirements & Milestones
+# IBKR-to-Xero — Requirements & Milestones
 
 ## Purpose
 
@@ -28,7 +28,7 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
 
 ## Milestones
 
-- [x] **M0 — Scaffolding**: pyproject, `ib_connector` package, pytest, git init, TODO.md, CLAUDE.md
+- [x] **M0 — Scaffolding**: pyproject, `ibkr_to_xero` package, pytest, git init, TODO.md, CLAUDE.md
 - [x] **M1 — Parser**: multi-section IB CSV → typed model (`parser.py`, `model.py`)
 - [x] **M2 — Converter + reconciliation + writer + CLI**: per-currency CSVs validated
       against `examples/AUD.csv` / `examples/USD.csv`; end-to-end tests
@@ -55,7 +55,7 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
       (`Account Information` → `Base Currency`). When a non-USD-base example exists,
       check whether the column is named after the base currency and route the commission
       row to the base-currency file instead of hardcoding USD
-      (`ib_connector/convert.py`, `_convert_forex_trade`).
+      (`ibkr_to_xero/convert.py`, `_convert_forex_trade`).
 - [ ] **M4 — Hosting** *(future)*: web (e.g. FastAPI) and/or Telegram bot front-end reusing the
       same library core; drag-n-drop/upload or direct fetch from IB
 - [ ] **M5 — Xero adaptor** *(future)*: push results straight to Xero via API instead of CSV import

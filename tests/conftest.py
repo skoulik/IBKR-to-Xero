@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from ib_connector import parse_statement
+from ibkr_to_xero import parse_statement
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 

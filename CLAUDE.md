@@ -19,7 +19,7 @@ and skip if the folder is absent.
 pip install -e .[dev]          # install package + pytest
 pytest                         # run all tests
 pytest tests/test_convert.py -k name   # run a single test
-ib-connector examples/<statement>.csv -o out/   # run the CLI
+ibkr2xero examples/<statement>.csv -o out/   # run the CLI
 ```
 
 ## Core rule: reject rather than emit wrong output
@@ -32,7 +32,7 @@ All money arithmetic uses `decimal.Decimal`; floats are forbidden for amounts.
 
 ## Architecture
 
-Pipeline in `ib_connector/`: `parser.py` → `convert.py` → `reconcile.py` → `writer.py`,
+Pipeline in `ibkr_to_xero/`: `parser.py` → `convert.py` → `reconcile.py` → `writer.py`,
 driven by `cli.py`. The core is a pure library (no I/O besides parser/writer) so it can later
 back a web/Telegram front-end or a Xero API adaptor (see TODO.md M4/M5).
 

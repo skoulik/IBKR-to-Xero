@@ -3,7 +3,7 @@ import re
 
 import pytest
 
-from ib_connector import StatementError, parse_statement
+from ibkr_to_xero import StatementError, parse_statement
 
 
 def test_metadata(statement):

@@ -1,4 +1,4 @@
-"""Command-line interface: ib-connector <statement.csv> [-o OUTDIR]."""
+"""Command-line interface: ibkr2xero <statement.csv> [-o OUTDIR]."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from .writer import write_results
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="ib-connector",
+        prog="ibkr2xero",
         description=(
             "Convert an IB Activity Statement CSV into per-currency Xero import CSVs. "
             "Refuses to write anything unless cash reconciles per currency."

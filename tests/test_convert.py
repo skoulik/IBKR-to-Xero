@@ -3,8 +3,8 @@ from decimal import Decimal
 
 import pytest
 
-from ib_connector import StatementError, convert
-from ib_connector.model import SectionRow, Statement
+from ibkr_to_xero import StatementError, convert
+from ibkr_to_xero.model import SectionRow, Statement
 
 
 def test_currencies(statement):

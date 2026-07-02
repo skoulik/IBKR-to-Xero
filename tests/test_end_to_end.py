@@ -10,7 +10,7 @@ The comparison below normalises those away; everything else must be identical.
 
 import csv
 
-from ib_connector.cli import main
+from ibkr_to_xero.cli import main
 from tests.conftest import EXAMPLES
 
 

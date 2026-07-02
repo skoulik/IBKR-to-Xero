@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ib-connector"
+name = "ibkr-to-xero"
 version = "0.1.0"
 description = "Convert Interactive Brokers Activity Statements into per-currency Xero bank-import CSVs, with strict cash reconciliation"
 requires-python = ">=3.11"
@@ -13,10 +13,10 @@ dependencies = []
 dev = ["pytest>=8"]
 
 [project.scripts]
-ib-connector = "ib_connector.cli:main"
+ibkr2xero = "ibkr_to_xero.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["ib_connector*"]
+include = ["ibkr_to_xero*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
