@@ -1,11 +1,14 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "ibkr-to-xero"
 version = "0.1.0"
 description = "Convert Interactive Brokers Activity Statements into per-currency Xero bank-import CSVs, with strict cash reconciliation"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Sergei Kulik" }]
 requires-python = ">=3.11"
 dependencies = []
 

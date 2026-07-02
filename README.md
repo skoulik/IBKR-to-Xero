@@ -153,3 +153,7 @@ absent.
 - Direct Xero API integration (skip the CSV import step)
 
 See [TODO.md](TODO.md) for details.
+
+## License
+
+[MIT](LICENSE)
