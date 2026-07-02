@@ -66,8 +66,10 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
         so CI exercises the full pipeline too)
   - [ ] **Versioning**: bump `pyproject.toml` version per release (semver), tag `vX.Y.Z`,
         keep a short CHANGELOG
-  - [ ] **Self-contained binaries** for non-tech-savvy users: release workflow triggered on
-        tag push builds single-file executables (e.g. PyInstaller `--onefile`) on a
+  - [ ] **Self-contained binaries** for non-tech-savvy users: **on-demand releases only** —
+        the workflow must not run on ordinary commits/pushes. Trigger manually
+        (`workflow_dispatch`) or by explicitly pushing a `vX.Y.Z` tag when a release is
+        decided; it then builds single-file executables (e.g. PyInstaller `--onefile`) on a
         Windows/macOS/Linux matrix and attaches them to the GitHub Release. Core is
         stdlib-only, so bundles should stay small.
   - [ ] Python users keep `pip install -e .` (already documented in README); pipx/PyPI
