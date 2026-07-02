@@ -23,7 +23,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("statement", type=Path, help="IB Activity Statement CSV file")
     parser.add_argument(
-        "-o", "--out", type=Path, default=Path("out"), help="output directory (default: out)"
+        "-o",
+        "--out",
+        type=Path,
+        default=None,
+        help="output directory (default: the statement file's directory)",
+    )
+    parser.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        help="overwrite existing output files (default: abort without writing anything)",
     )
     parser.add_argument(
         "--skip-zero",
@@ -58,7 +68,13 @@ def main(argv: list[str] | None = None) -> int:
         f"account {statement.account or '?'}, period "
         f"{statement.period_start} to {statement.period_end}"
     )
-    paths = write_results(results, args.out)
+    out_dir = args.out if args.out is not None else args.statement.parent
+    try:
+        paths = write_results(results, out_dir, overwrite=args.force)
+    except FileExistsError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        print("no output files were written. Use --force to overwrite.", file=sys.stderr)
+        return 2
     for result, path in zip(results, paths):
         print(
             f"  {path}: {len(result.rows)} transactions, "

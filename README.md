@@ -77,8 +77,12 @@ pip install -e .
 Export an Activity Statement from IB Client Portal in **CSV** format, then:
 
 ```sh
-ib-connector statement.csv -o out/
+ib-connector statement.csv           # writes next to the statement file
+ib-connector statement.csv -o out/   # or into a chosen directory
 ```
+
+Existing output files are never overwritten: the run aborts without writing anything
+unless `--force` is given.
 
 Zero-amount transactions (e.g. option expiries) are included by default so the output
 mirrors the statement; pass `--skip-zero` to omit them (they carry no cash and Xero
