@@ -70,6 +70,10 @@ Export an Activity Statement from IB Client Portal in **CSV** format, then:
 ib-connector statement.csv -o out/
 ```
 
+Zero-amount transactions (e.g. option expiries) are included by default so the output
+mirrors the statement; pass `--skip-zero` to omit them (they carry no cash and Xero
+discards them on import anyway).
+
 ```
 account U1234567, period 2026-06-01 to 2026-06-30
   out\AUD.csv: 5 transactions, cash -12345.67 -> -23456.78

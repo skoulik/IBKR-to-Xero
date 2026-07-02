@@ -48,6 +48,23 @@ def test_cli_end_to_end(statement_csv, tmp_path, capsys):
     assert "account U" in out
 
 
+def test_cli_skip_zero(statement_csv, tmp_path, capsys):
+    default_dir = tmp_path / "default"
+    skip_dir = tmp_path / "skip"
+    assert main([str(statement_csv), "-o", str(default_dir)]) == 0
+    assert main([str(statement_csv), "-o", str(skip_dir), "--skip-zero"]) == 0
+
+    for name in ("AUD.csv", "USD.csv"):
+        default_rows = _read(default_dir / name)
+        skip_rows = _read(skip_dir / name)
+        assert [r for r in default_rows if r[1] == "0"], f"{name}: fixture lost its zero rows"
+        assert not [r for r in skip_rows if r[1] == "0"]
+        # Skipping zero rows must change nothing else, including the sum.
+        assert skip_rows == [r for r in default_rows if r[1] != "0"]
+
+    assert "skipped" in capsys.readouterr().out
+
+
 def test_cli_rejects_tampered_input(statement_csv, tmp_path, capsys):
     text = statement_csv.read_text(encoding="utf-8-sig")
     tampered = tmp_path / "tampered.csv"

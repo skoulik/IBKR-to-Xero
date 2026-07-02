@@ -25,6 +25,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "-o", "--out", type=Path, default=Path("out"), help="output directory (default: out)"
     )
+    parser.add_argument(
+        "--skip-zero",
+        action="store_true",
+        help="omit zero-amount transactions (e.g. option expiries) from the output; "
+        "they carry no cash and Xero discards them on import anyway",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -34,6 +40,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         print("no output files were written.", file=sys.stderr)
         return 2
+
+    if args.skip_zero:
+        # Safe only after reconciliation: zero rows contribute nothing to the
+        # sums, so dropping them cannot mask a mismatch.
+        for result in results:
+            kept = [row for row in result.rows if row.amount != 0]
+            skipped = len(result.rows) - len(kept)
+            if skipped:
+                result.rows = kept
+                result.notes.append(f"skipped {skipped} zero-amount transaction(s)")
+        # A currency left with no rows at all is treated like one with no
+        # activity: no file.
+        results = [r for r in results if r.rows]
 
     print(
         f"account {statement.account or '?'}, period "
