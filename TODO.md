@@ -59,6 +59,19 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
 - [ ] **M4 — Hosting** *(future)*: web (e.g. FastAPI) and/or Telegram bot front-end reusing the
       same library core; drag-n-drop/upload or direct fetch from IB
 - [ ] **M5 — Xero adaptor** *(future)*: push results straight to Xero via API instead of CSV import
+- [ ] **M6 — Distribution & release engineering**
+  - [ ] **LICENSE**: pick and add one (public repo currently defaults to "all rights reserved")
+  - [ ] **CI**: GitHub Actions workflow running `pytest` on push/PR (statement-dependent tests
+        auto-skip since `examples/` is gitignored; consider a small synthetic fixture statement
+        so CI exercises the full pipeline too)
+  - [ ] **Versioning**: bump `pyproject.toml` version per release (semver), tag `vX.Y.Z`,
+        keep a short CHANGELOG
+  - [ ] **Self-contained binaries** for non-tech-savvy users: release workflow triggered on
+        tag push builds single-file executables (e.g. PyInstaller `--onefile`) on a
+        Windows/macOS/Linux matrix and attaches them to the GitHub Release. Core is
+        stdlib-only, so bundles should stay small.
+  - [ ] Python users keep `pip install -e .` (already documented in README); pipx/PyPI
+        publishing deliberately **not** pursued for now
 
 ## Input acquisition (stage 1)
 
