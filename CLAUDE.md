@@ -74,8 +74,11 @@ back a web/Telegram front-end or a Xero API adaptor (see TODO.md M4/M5).
   verifies both parts: embedded must be ≈0 or ≈10% of the `Commissions` component, and
   the unattributed gap must equal 10% of a subset of `Fees` rows (listed in the notes;
   ambiguous subset ⇒ accepted but not itemised) before it becomes the synthetic `GST`
-  row. Unverifiable GST ⇒ reject, unless `--accept-unattributed-gst` is passed; the
-  envelope check (same sign as, no larger than the component) always applies.
+  row. An unambiguous subset is also post-attributed onto the contributing fee rows:
+  each gains an `(excl. GST {amt})` description qualifier, and the notes say the amount
+  was automatically attributed. Unverifiable GST ⇒ reject, unless
+  `--accept-unattributed-gst` is passed; the envelope check (same sign as, no larger
+  than the component) always applies.
 - Only `DataDiscriminator == "Order"` Trades rows are transactions
   (`SubTotal`/`Total` rows are aggregates).
 - **Bonds** trade like stocks; coupons and purchase/sale accrued interest arrive as rows
@@ -104,5 +107,6 @@ back a web/Telegram front-end or a Xero API adaptor (see TODO.md M4/M5).
   rejected (zero rows are skipped; their Symbol cell is an exchange option code that
   matches no trade). The instrument type goes to the **Reference column**: `STOCK`/`BOND`/`OPTION`/
   `FUTURE`, alongside the existing `FX`/`FX-FEE`/`CORP`/`MTM`/`GST`/`ROUNDING` tags.
-  All other sections pass the statement description through verbatim. `Payee` is always
+  All other sections pass the statement description through verbatim — except verified
+  GST post-attribution, which appends `(excl. GST {amt})` to fee rows. `Payee` is always
   `Interactive Brokers`.

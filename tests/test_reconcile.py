@@ -138,9 +138,16 @@ def test_gst_attributed_to_all_fee_rows():
     assert len(gst_rows) == 1
     assert gst_rows[0].amount == Decimal("-2.2")
     assert gst_rows[0].date == _JUN30
-    assert any("10% of all Fees row(s)" in n for n in result.notes)
+    assert any(
+        "unattributed GST -2.20 automatically attributed as 10% of all Fees row(s)" in n
+        for n in result.notes
+    )
     assert any("Withdrawal Fee: -15.00 -> GST -1.50" in n for n in result.notes)
     assert any("Market data: -7.00 -> GST -0.70" in n for n in result.notes)
+    # the attribution is also written onto the fee rows themselves
+    descriptions = [r.description for r in result.rows]
+    assert "Withdrawal Fee (excl. GST 1.50)" in descriptions
+    assert "Market data (excl. GST 0.70)" in descriptions
 
 
 def test_gst_attributed_to_unique_subset():
@@ -154,9 +161,17 @@ def test_gst_attributed_to_unique_subset():
     )
     converted = {"AUD": [_fee("-15", "Withdrawal Fee"), _fee("-7", "Market data")]}
     (result,) = reconcile(statement, converted)
-    assert any("10% of 1 of 2 Fees row(s)" in n for n in result.notes)
+    assert any(
+        "unattributed GST -1.50 automatically attributed as 10% of 1 of 2 Fees row(s)"
+        in n
+        for n in result.notes
+    )
     assert any("Withdrawal Fee: -15.00 -> GST -1.50" in n for n in result.notes)
     assert not any("Market data" in n for n in result.notes)
+    # only the contributing row is annotated
+    descriptions = [r.description for r in result.rows]
+    assert "Withdrawal Fee (excl. GST 1.50)" in descriptions
+    assert "Market data" in descriptions
 
 
 def test_gst_ambiguous_attribution_accepted_but_not_itemised():
@@ -174,6 +189,7 @@ def test_gst_ambiguous_attribution_accepted_but_not_itemised():
     assert [r.amount for r in result.rows if r.reference == "GST"] == [Decimal("-1.5")]
     assert any("multiple fee-row combinations match" in n for n in result.notes)
     assert not any("-> GST" in n for n in result.notes)
+    assert not any("excl. GST" in r.description for r in result.rows)
 
 
 def test_gst_unverifiable_rejected_unless_flag():
@@ -198,6 +214,7 @@ def test_gst_unverifiable_rejected_unless_flag():
     )
     assert [r.amount for r in result.rows if r.reference == "GST"] == [Decimal("-2")]
     assert any("accepted unverified" in n for n in result.notes)
+    assert not any("excl. GST" in r.description for r in result.rows)
 
 
 def test_gst_embedded_must_be_zero_or_ten_percent_of_commissions():

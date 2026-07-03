@@ -91,6 +91,16 @@ def test_gst_synthetic_rows(fy_statement):
     # HKD/GBP have no GST component: no synthetic row.
     assert not [r for r in results["HKD"].rows if r.reference == "GST"]
     assert not [r for r in results["GBP"].rows if r.reference == "GST"]
+    # The AUD gap attributes unambiguously (10% of all three withdrawal fees):
+    # the fee rows are annotated and the notes say so. The USD gap is
+    # ambiguous (multiple fee-row combinations): no annotation.
+    aud_annotated = [
+        r for r in results["AUD"].rows if r.description.endswith("(excl. GST 1.50)")
+    ]
+    assert len(aud_annotated) == 3
+    assert any("automatically attributed" in n for n in results["AUD"].notes)
+    assert not any("excl. GST" in r.description for r in results["USD"].rows)
+    assert not any("automatically attributed" in n for n in results["USD"].notes)
 
 
 def test_transaction_fees_not_double_counted(fy_statement):

@@ -14,7 +14,9 @@ Ending Cash and the cash-flow components in between. Reconciliation enforces:
    must equal 10% of a subset of the Fees rows — verified, listed in the notes,
    and emitted as one tagged synthetic row. Unverifiable GST => reject, unless
    accept_unattributed_gst is set. When the embedded side verifies, trade rows
-   displaying a commission gain an "(incl. GST)" qualifier.
+   displaying a commission gain an "(incl. GST)" qualifier; when the fee-side
+   subset is unambiguous, each contributing fee row gains an
+   "(excl. GST {amount})" qualifier naming its 10% share.
 6. After rounding to 2 dp, any residual within tolerance becomes a tagged
    ROUNDING row; beyond tolerance => reject.
 
@@ -109,6 +111,18 @@ def _with_gst_qualifier(row: OutputRow) -> OutputRow:
     else:
         description += " (incl. GST)"
     return replace(row, description=description)
+
+
+def _with_fee_gst_qualifier(row: OutputRow) -> OutputRow:
+    """Mark a fee row whose 10% GST share was verified and attributed.
+
+    'Withdrawal Fee' -> 'Withdrawal Fee (excl. GST 1.50)'
+
+    The GST cash itself is not in this row (it sits in the synthetic GST
+    row), hence "excl."; the amount is displayed unsigned like the 10% it is.
+    """
+    gst = _round2(abs(row.amount) * _GST_RATE)
+    return replace(row, description=f"{row.description} (excl. GST {gst})")
 
 
 def _attribute_gst_gap(
@@ -393,10 +407,21 @@ def reconcile(
                 f"{_round2(gst - gst_gap)}, unattributed {_round2(gst_gap)})"
             )
             if status in ("full", "unique"):
+                # The subset is unambiguous: say so on each contributing fee
+                # row. The subset holds the same objects as `rows`, so match
+                # by identity (amounts and descriptions can repeat).
+                attributed = {id(r) for r in subset}
+                rows = [
+                    _with_fee_gst_qualifier(r) if id(r) in attributed else r
+                    for r in rows
+                ]
                 which = (
                     "all" if status == "full" else f"{len(subset)} of {len(candidates)}"
                 )
-                notes.append(f"unattributed GST = 10% of {which} Fees row(s):")
+                notes.append(
+                    f"unattributed GST {_round2(gst_gap)} automatically attributed "
+                    f"as 10% of {which} Fees row(s):"
+                )
                 for r in subset:
                     notes.append(
                         f"  {r.date} {r.description}: {_round2(r.amount)} "
