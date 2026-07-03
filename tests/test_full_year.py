@@ -46,8 +46,9 @@ def test_forex_fee_rows(fy_statement):
 
 def test_futures_emit_commissions_only(fy_statement):
     results = _results(fy_statement)
-    futures = [r for r in results["USD"].rows if "futures commission" in r.description]
+    futures = [r for r in results["USD"].rows if r.reference == "FUTURE"]
     assert len(futures) == 6
+    assert all(" commission: " in r.description for r in futures)
     assert sum(r.amount for r in futures) == Decimal("-22.23")
     # Notional must never leak into the output (individual trades are ~70k).
     assert all(abs(r.amount) < 10 for r in futures)
@@ -98,3 +99,29 @@ def test_transaction_fees_not_double_counted(fy_statement):
     assert not [
         r for r in converted["HKD"] if r.source_section == "Transaction Fees"
     ]
+
+
+def test_stamp_duty_shown_inside_commission(fy_statement):
+    # The three nonzero HKD Transaction Fees rows each enrich exactly one
+    # trade description; the amounts stay inside Comm/Fee (display only).
+    results = _results(fy_statement)
+    duties = [r for r in results["HKD"].rows if "incl. stamp duty" in r.description]
+    assert len(duties) == 3
+    for currency in ("AUD", "GBP", "USD"):
+        assert not [
+            r for r in results[currency].rows if "stamp duty" in r.description
+        ]
+
+
+def test_gst_qualifier_only_on_aud_commissions(fy_statement):
+    # AUD is the only currency whose embedded GST verifies as 10% of
+    # commissions; every AUD trade row displaying a commission is marked.
+    results = _results(fy_statement)
+    aud_trades = [r for r in results["AUD"].rows if r.source_section == "Trades"]
+    with_comm = [r for r in aud_trades if " comm: " in r.description]
+    assert with_comm, "expected AUD trades displaying a commission"
+    assert all("(incl. GST" in r.description for r in with_comm)
+    for currency in ("GBP", "HKD", "USD"):
+        assert not [
+            r for r in results[currency].rows if "incl. GST" in r.description
+        ]

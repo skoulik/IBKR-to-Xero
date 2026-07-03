@@ -3,10 +3,20 @@
 Every function here returns unrounded Decimal amounts; rounding and the
 synthetic MTM/ROUNDING rows are the reconciler's job (reconcile.py), because
 they only make sense once cash has been proven to add up.
+
+Trade descriptions follow one grammar (simple sections stay verbatim):
+
+    {+|-}{qty} {symbol} [({event})] price: {price} comm: {comm} [({qualifiers})]
+
+Zero fields are omitted (an expiry shows no price, a free trade no comm).
+The instrument type lives in the Reference column (STOCK/BOND/OPTION/FUTURE/
+FX/FX-FEE), not the description. The "(incl. GST)" qualifier is appended by
+reconcile.py once the embedded-GST cross-check has verified it.
 """
 
 from __future__ import annotations
 
+import collections
 import datetime as dt
 from decimal import Decimal
 
@@ -35,9 +45,19 @@ _TRADE_DISCRIMINATOR_IS_TXN = {
 # separately through the Interest section).
 _CASH_TRADE_CATEGORIES = {"Stocks", "Bonds", "Equity and Index Options"}
 
+# Instrument type tag written to the Reference column for cash trades.
+_TRADE_REFERENCE = {"Stocks": "STOCK", "Bonds": "BOND", "Equity and Index Options": "OPTION"}
+
+# Trades "Code" flags surfaced as lifecycle events in the description.
+# Ordinary order mechanics (O/C open/close, P partial execution) stay
+# silent; only codes with a confirmed meaning get a label.
+_EVENT_CODES = (("A", "assigned"), ("Ep", "expired"))
+
 # Sections that share the simple Currency/Date/Description/Amount shape,
 # in the output order established by the reference examples.
 _SIMPLE_SECTIONS = ("Fees", "Deposits & Withdrawals", "Dividends", "Withholding Tax", "Interest")
+
+_CENT = Decimal("0.01")
 
 
 def _parse_date(text: str, row: SectionRow) -> dt.date:
@@ -51,16 +71,68 @@ def _parse_date(text: str, row: SectionRow) -> dt.date:
         ) from exc
 
 
-def _trade_description(row: SectionRow) -> str:
+def _fmt_comm(value: Decimal) -> str:
+    return fmt_number(value.quantize(_CENT))
+
+
+def _signed_qty(row: SectionRow) -> str:
     qty = row["Quantity"].replace(",", "").strip()
-    symbol = row["Symbol"].strip()
-    category = row["Asset Category"]
-    if category in ("Stocks", "Bonds"):
-        price = row["T. Price"].replace(",", "").strip()
-        comm = fmt_number(parse_money(row["Comm/Fee"]).quantize(Decimal("0.01")))
-        return f"{qty} {symbol} price: {price} comm: {comm}"
-    # Options: "-1xCSL 16JUL26 130 C"
-    return f"{qty}x{symbol}"
+    return qty if qty.startswith("-") else f"+{qty}"
+
+
+def _labels(row: SectionRow) -> str:
+    """The optional lifecycle parenthetical after the symbol: " (event)" or ""."""
+    codes = {code.strip() for code in row.values.get("Code", "").split(";")}
+    labels = [label for code, label in _EVENT_CODES if code in codes]
+    return f" ({', '.join(labels)})" if labels else ""
+
+
+def _trade_description(row: SectionRow, stamp_duty: Decimal) -> str:
+    text = f"{_signed_qty(row)} {row['Symbol'].strip()}{_labels(row)}"
+    price = row["T. Price"].replace(",", "").strip()
+    if price and parse_money(price) != 0:
+        text += f" price: {price}"
+    comm = parse_money(row["Comm/Fee"])
+    if comm != 0:
+        text += f" comm: {_fmt_comm(comm)}"
+        if stamp_duty:
+            text += f" (incl. stamp duty {_fmt_comm(stamp_duty)})"
+    return text
+
+
+def _stamp_duties(statement: Statement) -> dict[tuple[str, str, str], Decimal]:
+    """Nonzero Transaction Fees amounts keyed by their unique matching trade.
+
+    The section is a per-trade breakdown of fees already embedded in trade
+    Comm/Fee (reconcile.py cross-checks the totals against the Cash Report);
+    here it only enriches the trade description. Zero rows carry nothing to
+    display — and their Symbol column uses exchange option codes that match
+    no Trades row — so they are skipped. A nonzero row that does not match
+    exactly one trade would misattribute money => reject.
+    """
+    trade_count: collections.Counter[tuple[str, str, str]] = collections.Counter()
+    for row in statement.rows("Trades"):
+        if _TRADE_DISCRIMINATOR_IS_TXN.get(row.values.get("DataDiscriminator", "")):
+            trade_count[
+                (row["Currency"], row["Symbol"].strip(), row["Date/Time"].strip())
+            ] += 1
+    duties: dict[tuple[str, str, str], Decimal] = {}
+    for row in statement.rows("Transaction Fees"):
+        currency = row.values.get("Currency", "")
+        if not CURRENCY_RE.match(currency):
+            continue  # "Total"/"Total in USD" aggregates
+        amount = parse_money(row["Amount"])
+        if amount == 0:
+            continue
+        key = (currency, row["Symbol"].strip(), row["Date/Time"].strip())
+        if trade_count[key] != 1:
+            raise StatementError(
+                f"line {row.line_no}: Transaction Fees row for {row['Symbol']!r} at "
+                f"{row['Date/Time']!r} ({amount}) matches {trade_count[key]} trades; "
+                f"cannot attribute it to exactly one"
+            )
+        duties[key] = duties.get(key, Decimal(0)) + amount
+    return duties
 
 
 def _convert_forex_trade(row: SectionRow, out: dict[str, list[OutputRow]]) -> None:
@@ -81,7 +153,8 @@ def _convert_forex_trade(row: SectionRow, out: dict[str, list[OutputRow]]) -> No
             f"with currency {row['Currency']!r}"
         )
     date = _parse_date(row["Date/Time"], row)
-    description = f"FX {pair} {row['Quantity'].strip()} @ {row['T. Price'].strip()}"
+    price = row["T. Price"].replace(",", "").strip()
+    description = f"{_signed_qty(row)} {pair}{_labels(row)} price: {price}"
     out.setdefault(base, []).append(
         OutputRow(
             date=date,
@@ -107,7 +180,7 @@ def _convert_forex_trade(row: SectionRow, out: dict[str, list[OutputRow]]) -> No
             OutputRow(
                 date=date,
                 amount=comm,
-                description=f"FX {pair} commission",
+                description=f"{pair} commission: {_fmt_comm(comm)}",
                 reference="FX-FEE",
                 source_section="Trades",
             )
@@ -115,6 +188,7 @@ def _convert_forex_trade(row: SectionRow, out: dict[str, list[OutputRow]]) -> No
 
 
 def _convert_trades(statement: Statement, out: dict[str, list[OutputRow]]) -> None:
+    duties = _stamp_duties(statement)
     for row in statement.rows("Trades"):
         discriminator = row["DataDiscriminator"]
         is_txn = _TRADE_DISCRIMINATOR_IS_TXN.get(discriminator)
@@ -136,22 +210,28 @@ def _convert_trades(statement: Statement, out: dict[str, list[OutputRow]]) -> No
             # Futures notional never touches cash: the P/L arrives via the
             # Cash Report's "Cash Settling MTM" (one synthetic row per
             # period); only the per-trade commission is real dated cash.
+            comm = parse_money(row["Comm/Fee"])
             out.setdefault(currency, []).append(
                 OutputRow(
                     date=_parse_date(row["Date/Time"], row),
-                    amount=parse_money(row["Comm/Fee"]),
-                    description=f"{row['Quantity'].strip()}x{row['Symbol'].strip()} "
-                    "futures commission",
+                    amount=comm,
+                    description=f"{_signed_qty(row)} {row['Symbol'].strip()}"
+                    f"{_labels(row)} commission: {_fmt_comm(comm)}",
+                    reference="FUTURE",
                     source_section="Trades",
                 )
             )
         elif category in _CASH_TRADE_CATEGORIES:
             amount = parse_money(row["Proceeds"]) + parse_money(row["Comm/Fee"])
+            duty = duties.get(
+                (currency, row["Symbol"].strip(), row["Date/Time"].strip()), Decimal(0)
+            )
             out.setdefault(currency, []).append(
                 OutputRow(
                     date=_parse_date(row["Date/Time"], row),
                     amount=amount,
-                    description=_trade_description(row),
+                    description=_trade_description(row, duty),
+                    reference=_TRADE_REFERENCE[category],
                     source_section="Trades",
                 )
             )

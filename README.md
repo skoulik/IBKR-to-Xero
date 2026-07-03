@@ -6,8 +6,9 @@ CSV format) — with **strict cash reconciliation** built in.
 
 ```
 *Date,*Amount,Payee,Description,Reference,Cheque Number
-2026-06-12,21749.53,Interactive Brokers,-100 ABCD price: 217.5 comm: -0.47,,
-2026-06-19,0,Interactive Brokers,1xWXYZ 18JUN26 95 C,,
+2026-06-12,21749.53,Interactive Brokers,-100 ABCD price: 217.5 comm: -0.47,STOCK,
+2026-06-19,0,Interactive Brokers,+1 WXYZ 18JUN26 95 C (expired),OPTION,
+2026-06-26,31.15,Interactive Brokers,-1 EFGH 16JUL26 130 C price: 0.35 comm: -3.85 (incl. GST),OPTION,
 2026-06-15,-60000,Interactive Brokers,Disbursement,,
 2026-06-03,-1108.33,Interactive Brokers,AUD Debit Interest for May-2026,,
 ```
@@ -30,10 +31,9 @@ no output is written**. Wrong output is worse than no output.
 
 | Statement section | Becomes |
 |---|---|
-| Trades — Stocks, Bonds | `{qty} {symbol} price: {price} comm: {commission}` |
-| Trades — Equity and Index Options | `{qty}x{contract}` (premiums, assignments, expiries) |
+| Trades — Stocks, Bonds, Options | `{±qty} {symbol} [(event)] price: {price} comm: {comm} [(qualifiers)]`, tagged `STOCK`/`BOND`/`OPTION` |
 | Trades — Forex | a transfer: one leg in each currency's file, tagged `FX`; USD commission row tagged `FX-FEE` |
-| Trades — Futures | per-trade commission rows only (notional never touches cash); P/L via the `MTM` line |
+| Trades — Futures | per-trade `{±qty} {symbol} commission: {comm}` rows only (notional never touches cash), tagged `FUTURE`; P/L via the `MTM` line |
 | Corporate Actions | share movements and residual cash payments, tagged `CORP` |
 | Deposits & Withdrawals | description passed through |
 | Fees | description passed through |
@@ -41,9 +41,18 @@ no output is written**. Wrong output is worse than no output.
 | Withholding Tax | description passed through |
 | Interest (incl. bond coupons and accrued interest) | description passed through |
 
-Per-trade transaction fees (e.g. HK stamp duty) are already embedded in each trade's
-commission; the tool cross-checks the section against the Cash Report instead of
-double-counting it.
+All trades share one description grammar: the signed quantity is the direction (`+210`
+buys, `-100` sells), zero fields are omitted (an expiry shows no price, a free trade no
+commission), and lifecycle events from the statement's `Code` column appear in
+parentheses (`expired`, `assigned`). The instrument type lives in the `Reference` column,
+so Xero bank rules can match on it directly.
+
+The commission qualifiers are only stated when verified against the Cash Report:
+`(incl. GST)` appears on every commission of a currency whose embedded GST cross-checks
+as exactly 10% of the Commissions component, and `(incl. stamp duty {amt})` breaks out
+per-trade transaction fees (e.g. HK stamp duty) that IB embeds in each trade's
+commission — the tool attributes them via the Transaction Fees section, which it
+cross-checks against the Cash Report instead of double-counting.
 
 Synthetic lines may be appended, clearly tagged in the `Reference` column so they can be
 reviewed:

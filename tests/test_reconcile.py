@@ -241,6 +241,69 @@ def test_gst_fully_embedded_notes_commission_arithmetic():
     assert any("= 10% of Commissions component -10" in n for n in result.notes)
 
 
+def _trade_with(description: str, amount: str) -> OutputRow:
+    return OutputRow(
+        date=dt.date(2026, 6, 10),
+        amount=Decimal(amount),
+        description=description,
+        source_section="Trades",
+    )
+
+
+def test_verified_embedded_gst_marks_commissions_incl_gst():
+    # Once the embedded check passes, every trade row that displays a
+    # commission gains the qualifier; rows without one stay untouched.
+    statement = _gst_statement(
+        [
+            ("Starting Cash", "0"),
+            ("Trades (Sales)", "100"),
+            ("Commissions", "-10"),
+            ("GST", "-1"),
+            ("Ending Cash", "89"),
+        ]
+    )
+    converted = {
+        "AUD": [
+            _trade_with("-1 XYZ price: 55 comm: -8", "44"),
+            _trade_with("+2 QRST price: 20 comm: -3 (incl. stamp duty -2)", "43"),
+            _trade_with("+1 WXYZ 18JUN26 95 C (expired)", "2"),
+        ]
+    }
+    (result,) = reconcile(statement, converted)
+    descriptions = [r.description for r in result.rows]
+    assert "-1 XYZ price: 55 comm: -8 (incl. GST)" in descriptions
+    # merges into an existing qualifier parenthesis, GST first
+    assert (
+        "+2 QRST price: 20 comm: -3 (incl. GST, incl. stamp duty -2)" in descriptions
+    )
+    # no commission displayed -> no marker
+    assert "+1 WXYZ 18JUN26 95 C (expired)" in descriptions
+
+
+def test_zero_embedded_gst_leaves_descriptions_alone():
+    # GST exists but none of it is embedded in trades (fees-only GST):
+    # commissions in this currency attract no GST => no qualifier.
+    statement = _gst_statement(
+        [
+            ("Starting Cash", "100"),
+            ("Trades (Sales)", "50"),
+            ("Commissions", "-10"),
+            ("Other Fees", "-15"),
+            ("GST", "-1.5"),
+            ("Ending Cash", "123.5"),
+        ]
+    )
+    converted = {
+        "AUD": [
+            _trade_with("-1 XYZ price: 50 comm: -10", "40"),
+            _fee("-15", "Withdrawal Fee"),
+        ]
+    }
+    (result,) = reconcile(statement, converted)
+    assert any(r.description == "-1 XYZ price: 50 comm: -10" for r in result.rows)
+    assert not any("incl. GST" in r.description for r in result.rows)
+
+
 def test_all_errors_reported_at_once(statement_csv, tmp_path):
     # Two independent problems in two currencies: both must be in one report.
     text = statement_csv.read_text(encoding="utf-8-sig")

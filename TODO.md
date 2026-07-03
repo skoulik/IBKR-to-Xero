@@ -49,6 +49,13 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
       rejects the input unless `--accept-unattributed-gst` is passed. Future option:
       accept a Statement of Funds export as a companion input so the synthetic period-end
       `GST` line can be replaced by dated rows.
+- [x] **M3.5 — Unified trade descriptions** (2026-07-03): one grammar for all trades —
+      `{+|-}{qty} {symbol} [({event})] price: {price} comm: {comm} [({qualifiers})]`
+      with zero fields omitted, lifecycle events from the `Code` column (`assigned`,
+      `expired`), verified `incl. GST` / `incl. stamp duty` commission qualifiers, and the
+      instrument type moved to the Reference column (`STOCK`/`BOND`/`OPTION`/`FUTURE`).
+      Reference outputs in `examples/` regenerated from verified output (Date/Amount
+      proven identical to the hand-made originals, kept as `*.csv.orig`).
 - [ ] **M3.2 — Robustness**: multiple statement files in one run, richer error reporting
 - [ ] **M3.3 — More asset classes**: investigate/add further trade categories such as
       warrants (also structured products, CFDs, mutual funds as they come up). No example
@@ -65,7 +72,7 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
       same library core; drag-n-drop/upload or direct fetch from IB
 - [ ] **M5 — Xero adaptor** *(future)*: push results straight to Xero via API instead of CSV import
 - [ ] **M6 — Distribution & release engineering**
-  - [ ] **LICENSE**: pick and add one (public repo currently defaults to "all rights reserved")
+  - [x] **LICENSE**: MIT, added 2026-07-03 (`LICENSE`, `license` in pyproject, README section)
   - [ ] **CI**: GitHub Actions workflow running `pytest` on push/PR (statement-dependent tests
         auto-skip since `examples/` is gitignored; consider a small synthetic fixture statement
         so CI exercises the full pipeline too)

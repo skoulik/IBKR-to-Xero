@@ -8,10 +8,11 @@ Converts an Interactive Brokers **Activity Statement** CSV (multi-section export
 **per-currency** transaction CSVs in the Xero bank-statement import format
 (`templates/StatementImportTemplate.csv`). Requirements and milestones live in `TODO.md`.
 
-The `examples/` folder (a real statement `U*_<start>_<end>.csv` plus hand-made reference
-outputs `AUD.csv`/`USD.csv`) contains **real account data and is gitignored — never commit
-it or quote its contents** in committed files. Tests discover the statement file by glob
-and skip if the folder is absent.
+The `examples/` folder (a real statement `U*_<start>_<end>.csv` plus reference outputs
+`AUD.csv`/`USD.csv`, regenerated 2026-07-03 from verified output — the hand-made
+originals are kept as `*.csv.orig`) contains **real account data and is gitignored —
+never commit it or quote its contents** in committed files. Tests discover the statement
+file by glob and skip if the folder is absent.
 
 ## Commands
 
@@ -88,6 +89,17 @@ back a web/Telegram front-end or a Xero API adaptor (see TODO.md M4/M5).
 - Cash Report collateral lines (`Starting/Ending Collateral Value`,
   `Net Securities Lent Activity`, `Net (Settled) Cash Balance`) are SYEP information, not
   cash flow — ignored.
-- Output descriptions: stocks/bonds `{Qty} {Symbol} price: {T.Price} comm: {Comm/Fee 2dp}`;
-  options `{Qty}x{Symbol}`; all other sections pass the statement description through verbatim.
-  `Payee` is always `Interactive Brokers`.
+- Output descriptions — one grammar for all trades:
+  `{+|-}{qty} {symbol} [({event})] price: {price} comm: {comm 2dp} [({qualifiers})]`.
+  Zero fields are omitted (expiries show no price, free trades no comm); events come from
+  the Trades `Code` column (`A` → `assigned`, `Ep` → `expired`; O/C/P stay silent);
+  futures and forex-fee rows say `commission: {amt}` instead; forex legs share one
+  description. Qualifiers inside one parenthesis after the comm: `incl. GST` is appended
+  by reconcile.py only after the embedded-GST check verifies 10%-of-Commissions for that
+  currency; `incl. stamp duty {amt}` comes from nonzero Transaction Fees rows joined on
+  currency+symbol+date/time — a nonzero row must match exactly one trade or the input is
+  rejected (zero rows are skipped; their Symbol cell is an exchange option code that
+  matches no trade). The instrument type goes to the **Reference column**: `STOCK`/`BOND`/`OPTION`/
+  `FUTURE`, alongside the existing `FX`/`FX-FEE`/`CORP`/`MTM`/`GST`/`ROUNDING` tags.
+  All other sections pass the statement description through verbatim. `Payee` is always
+  `Interactive Brokers`.

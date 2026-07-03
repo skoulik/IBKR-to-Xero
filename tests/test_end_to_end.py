@@ -1,11 +1,12 @@
 """End-to-end: CLI on the real example statement vs the reference outputs.
 
-The hand-made reference files differ from ideal output in two known ways:
-- two Fees descriptions carry a stray trailing '?' not present in the source
-  statement (an artifact of how the reference was produced);
-- USD.csv ends with manual reconciliation scratch rows (blank dates), which
-  the tool replaces with tagged synthetic MTM/ROUNDING rows.
-The comparison below normalises those away; everything else must be identical.
+The reference files were originally hand-made; on 2026-07-03 they were
+regenerated from verified converter output when the unified trade-description
+format landed (the originals are kept locally as examples/*.csv.orig). The
+regeneration was gated on the Date and Amount columns being identical
+row-by-row to the hand-made files — only Description and Reference changed —
+so the reconciliation identity (Starting + transactions = Ending) remains the
+independent check on the amounts.
 """
 
 import csv
@@ -19,30 +20,19 @@ def _read(path):
         return list(csv.reader(fh))
 
 
-def _reference_rows(name):
-    rows = _read(EXAMPLES / name)
-    # Drop manual scratch rows (no date) and the stray trailing '?'.
-    return [
-        [cell.rstrip("?") for cell in row]
-        for row in rows
-        if row[0].strip()
-    ]
-
-
 def test_cli_end_to_end(statement_csv, tmp_path, capsys):
     assert main([str(statement_csv), "-o", str(tmp_path)]) == 0
 
     written = sorted(p.name for p in tmp_path.iterdir())
     assert written == ["AUD.csv", "USD.csv"]  # no HKD: no cash activity
 
-    assert _read(tmp_path / "AUD.csv") == _reference_rows("AUD.csv")
+    for name in written:
+        assert _read(tmp_path / name) == _read(EXAMPLES / name)
 
+    # The synthetic rows are part of the references; spot-check they exist.
     usd = _read(tmp_path / "USD.csv")
-    synthetic = [row for row in usd if row[4] in ("MTM", "ROUNDING")]
-    real = [row for row in usd if row[4] not in ("MTM", "ROUNDING")]
-    assert real == _reference_rows("USD.csv")
-    assert [row[4] for row in synthetic] == ["MTM", "ROUNDING"]
-    assert synthetic[0][1] == "2575"
+    assert [row[1] for row in usd if row[4] == "MTM"] == ["2575"]
+    assert len([row for row in usd if row[4] == "ROUNDING"]) == 1
 
     out = capsys.readouterr().out
     assert "account U" in out

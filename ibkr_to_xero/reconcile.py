@@ -13,7 +13,8 @@ Ending Cash and the cash-flow components in between. Reconciliation enforces:
    unattributed remainder (GST on account fees; no dated row in this export)
    must equal 10% of a subset of the Fees rows — verified, listed in the notes,
    and emitted as one tagged synthetic row. Unverifiable GST => reject, unless
-   accept_unattributed_gst is set.
+   accept_unattributed_gst is set. When the embedded side verifies, trade rows
+   displaying a commission gain an "(incl. GST)" qualifier.
 6. After rounding to 2 dp, any residual within tolerance becomes a tagged
    ROUNDING row; beyond tolerance => reject.
 
@@ -23,6 +24,7 @@ so the user sees the complete picture; no output is written on failure.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import ROUND_HALF_UP, Decimal
 
 from .model import (
@@ -89,6 +91,24 @@ _INFORMATIONAL_COMPONENTS = {
 
 def _round2(value: Decimal) -> Decimal:
     return value.quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def _displays_commission(row: OutputRow) -> bool:
+    return " comm: " in row.description or " commission: " in row.description
+
+
+def _with_gst_qualifier(row: OutputRow) -> OutputRow:
+    """Mark a verified GST-inclusive commission in the description.
+
+    '... comm: -6.11'                         -> '... comm: -6.11 (incl. GST)'
+    '... comm: -22.15 (incl. stamp duty ...)' -> '... (incl. GST, incl. stamp duty ...)'
+    """
+    description = row.description
+    if "(incl. " in description:
+        description = description.replace("(incl. ", "(incl. GST, incl. ", 1)
+    else:
+        description += " (incl. GST)"
+    return replace(row, description=description)
 
 
 def _attribute_gst_gap(
@@ -299,6 +319,15 @@ def reconcile(
                     f"GST embedded in trades {_round2(embedded)} = 10% of "
                     f"Commissions component {commissions}"
                 )
+                # The check just verified that every commission in this
+                # currency carries 10% GST inside it: say so on each trade
+                # row that displays one.
+                rows = [
+                    _with_gst_qualifier(row)
+                    if row.source_section == "Trades" and _displays_commission(row)
+                    else row
+                    for row in rows
+                ]
             elif accept_unattributed_gst:
                 notes.append(
                     f"GST embedded in trades {_round2(embedded)} is neither zero nor "
