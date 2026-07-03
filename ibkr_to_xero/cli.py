@@ -43,11 +43,21 @@ def main(argv: list[str] | None = None) -> int:
         help="omit zero-amount transactions (e.g. option expiries) from the output; "
         "they carry no cash and Xero discards them on import anyway",
     )
+    parser.add_argument(
+        "--accept-unattributed-gst",
+        action="store_true",
+        help="accept a GST amount that cannot be verified as 10%% GST on specific "
+        "fee rows, as a single lump-sum line (default: reject the input)",
+    )
     args = parser.parse_args(argv)
 
     try:
         statement = parse_statement(args.statement)
-        results = reconcile(statement, convert(statement))
+        results = reconcile(
+            statement,
+            convert(statement),
+            accept_unattributed_gst=args.accept_unattributed_gst,
+        )
     except (StatementError, ReconciliationError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         print("no output files were written.", file=sys.stderr)

@@ -95,6 +95,46 @@ def test_cli_refuses_to_overwrite_without_force(statement_csv, tmp_path, capsys)
     assert main([str(statement_csv), "-o", str(tmp_path), "--force-overwrite"]) == 0
 
 
+# A minimal synthetic statement whose GST component (-2) cannot be verified
+# as 10% GST on its single fee row (-15 -> -1.50). No real account data.
+_UNVERIFIABLE_GST_STATEMENT = """\
+Statement,Header,Field Name,Field Value
+Statement,Data,Period,"June 1, 2026 - June 30, 2026"
+Account Information,Header,Field Name,Field Value
+Account Information,Data,Account,U0000000
+Cash Report,Header,Currency Summary,Currency,Total
+Cash Report,Data,Starting Cash,AUD,100
+Cash Report,Data,Other Fees,AUD,-15
+Cash Report,Data,GST,AUD,-2
+Cash Report,Data,Ending Cash,AUD,83
+Fees,Header,Subtitle,Currency,Date,Description,Amount
+Fees,Data,Other Fees,AUD,2026-06-10,Withdrawal Fee,-15
+"""
+
+
+def test_cli_accept_unattributed_gst_flag(tmp_path, capsys):
+    stmt = tmp_path / "gst.csv"
+    stmt.write_text(_UNVERIFIABLE_GST_STATEMENT, encoding="utf-8")
+    out_dir = tmp_path / "out"
+    assert main([str(stmt), "-o", str(out_dir)]) == 2
+    err = capsys.readouterr().err
+    assert "unattributed GST -2.00 cannot be verified" in err
+    assert "--accept-unattributed-gst" in err
+    assert not out_dir.exists()  # nothing written on rejection
+
+    assert main([str(stmt), "-o", str(out_dir), "--accept-unattributed-gst"]) == 0
+    assert "accepted unverified" in capsys.readouterr().out
+    rows = _read(out_dir / "AUD.csv")
+    assert [
+        "2026-06-30",
+        "-2",
+        "Interactive Brokers",
+        "GST (not itemised in statement)",
+        "GST",
+        "",
+    ] in rows
+
+
 def test_cli_rejects_tampered_input(statement_csv, tmp_path, capsys):
     text = statement_csv.read_text(encoding="utf-8-sig")
     tampered = tmp_path / "tampered.csv"

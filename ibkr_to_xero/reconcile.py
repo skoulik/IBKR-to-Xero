@@ -8,7 +8,13 @@ Ending Cash and the cash-flow components in between. Reconciliation enforces:
    cash matches the component sum exactly (to EPS).
 3. Unknown components with nonzero amounts => reject.
 4. "Cash Settling MTM" (no per-transaction rows) becomes a tagged synthetic row.
-5. After rounding to 2 dp, any residual within tolerance becomes a tagged
+5. The GST component must decompose as 10% GST: the part embedded in trade
+   Comm/Fee must be ~0 or ~10% of the Commissions component, and the
+   unattributed remainder (GST on account fees; no dated row in this export)
+   must equal 10% of a subset of the Fees rows — verified, listed in the notes,
+   and emitted as one tagged synthetic row. Unverifiable GST => reject, unless
+   accept_unattributed_gst is set.
+6. After rounding to 2 dp, any residual within tolerance becomes a tagged
    ROUNDING row; beyond tolerance => reject.
 
 All failures across all currencies are gathered into one ReconciliationError
@@ -37,6 +43,14 @@ MTM_COMPONENT = "Cash Settling MTM"
 MTM_DESCRIPTION = "Cash Settling MTM (futures)"
 ROUNDING_DESCRIPTION = "Rounding adjustment (2dp vs IB full precision)"
 GST_DESCRIPTION = "GST (not itemised in statement)"
+
+# Australian GST rate: the Cash Report GST component is 10% of AUD trade
+# commissions plus 10% of fees for services supplied by IBKR Australia itself.
+_GST_RATE = Decimal("0.1")
+# Cap on distinct partial sums the GST subset search may hold. Real fee rows
+# repeat amounts heavily (monthly charge/cancel pairs), so the sum space stays
+# near range/granularity; hitting this cap means the input is pathological.
+_MAX_GST_SUMS = 1 << 17
 
 # Cash Report component -> statement section whose converted rows must sum to it.
 _COMPONENT_SECTION = {
@@ -75,6 +89,50 @@ _INFORMATIONAL_COMPONENTS = {
 
 def _round2(value: Decimal) -> Decimal:
     return value.quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def _attribute_gst_gap(
+    gap: Decimal, fee_rows: list[OutputRow]
+) -> tuple[str, list[OutputRow]]:
+    """Explain gap as 10% GST on a subset of this currency's Fees rows.
+
+    Returns (status, contributing_rows) with status one of:
+      "full"      — 10% of all fee rows == gap (rows = all of them)
+      "unique"    — exactly one subset matches (rows = that subset)
+      "ambiguous" — several subsets match (charge/cancel pairs etc.); the gap
+                    is consistent with 10% GST on fees but no specific rows
+                    can honestly be named (rows = [])
+      "none"      — nothing matches, or the sum space blew past _MAX_GST_SUMS
+    """
+    values = [row.amount * _GST_RATE for row in fee_rows]
+    if values and abs(sum(values) - gap) <= EPS:
+        return "full", list(fee_rows)
+    # Subset-sum over exact Decimals: achievable sum -> (subset count capped
+    # at 2, indices of one witness subset). The empty subset never matches:
+    # gap is only ever nonzero beyond EPS.
+    sums: dict[Decimal, tuple[int, tuple[int, ...]]] = {Decimal(0): (1, ())}
+    for i, value in enumerate(values):
+        merged = dict(sums)
+        for partial, (count, witness) in sums.items():
+            total = partial + value
+            if total in merged:
+                merged_count, merged_witness = merged[total]
+                merged[total] = (min(2, merged_count + count), merged_witness)
+            else:
+                merged[total] = (count, witness + (i,))
+        if len(merged) > _MAX_GST_SUMS:
+            return "none", []
+        sums = merged
+    matches = [
+        (count, witness)
+        for total, (count, witness) in sums.items()
+        if abs(total - gap) <= EPS
+    ]
+    if not matches:
+        return "none", []
+    if len(matches) == 1 and matches[0][0] == 1:
+        return "unique", [fee_rows[i] for i in matches[0][1]]
+    return "ambiguous", []
 
 
 def _cash_report(statement: Statement) -> dict[str, dict[str, Decimal]]:
@@ -117,12 +175,17 @@ def _cash_report(statement: Statement) -> dict[str, dict[str, Decimal]]:
 
 
 def reconcile(
-    statement: Statement, converted: dict[str, list[OutputRow]]
+    statement: Statement,
+    converted: dict[str, list[OutputRow]],
+    *,
+    accept_unattributed_gst: bool = False,
 ) -> list[CurrencyResult]:
     """Validate all currencies; return ready-to-write results or raise.
 
     Raises ReconciliationError describing every failed check in every
     currency. Currencies without cash activity yield no result (no file).
+    accept_unattributed_gst accepts a GST amount that cannot be verified as
+    10% GST on specific rows (it must still pass the envelope check).
     """
     report = _cash_report(statement)
     errors: list[str] = []
@@ -223,6 +286,33 @@ def reconcile(
                 f"but Cash Report says {txfees_component}"
             )
 
+        # (2c) Embedded-side GST cross-check: the part of the GST component
+        # already inside trade Comm/Fee must be ~0 (exchanges whose brokerage
+        # attracts no GST) or ~10% of the Commissions component.
+        if gst != 0:
+            embedded = gst - gst_gap
+            commissions = components.get("Commissions", Decimal(0))
+            if abs(embedded) <= EPS:
+                pass
+            elif abs(embedded - commissions * _GST_RATE) <= EPS:
+                notes.append(
+                    f"GST embedded in trades {_round2(embedded)} = 10% of "
+                    f"Commissions component {commissions}"
+                )
+            elif accept_unattributed_gst:
+                notes.append(
+                    f"GST embedded in trades {_round2(embedded)} is neither zero nor "
+                    f"10% of Commissions component {commissions}; accepted unverified "
+                    f"(--accept-unattributed-gst)"
+                )
+            else:
+                errors.append(
+                    f"{currency}: GST embedded in trades {embedded} is neither zero "
+                    f"nor 10% of the Commissions component {commissions} (10% would "
+                    f"be {commissions * _GST_RATE}); re-run with "
+                    f"--accept-unattributed-gst to accept it unverified"
+                )
+
         # (4) Synthetic MTM row for futures cash settlement.
         if mtm is not None and mtm != 0:
             rows.append(
@@ -237,9 +327,26 @@ def reconcile(
             notes.append(f"synthetic MTM row for {MTM_COMPONENT}: {mtm}")
 
         # (4b) Synthetic row for GST charged on account fees: real cash with
-        # no per-item rows in the statement. TODO(TODO.md M3): itemise it if
-        # IB ever exposes a GST details section in this export format.
+        # no per-item rows anywhere in this export (IB itemises it only in the
+        # separate Statement of Funds report). The amount must be *verified*
+        # as 10% GST on this currency's Fees rows before it is accepted.
         if gst_gap != 0:
+            candidates = [
+                r for r in rows if r.source_section == "Fees" and r.amount != 0
+            ]
+            status, subset = _attribute_gst_gap(gst_gap, candidates)
+            if status == "none" and not accept_unattributed_gst:
+                shown = ", ".join(
+                    f"{r.date} {r.description!r} {_round2(r.amount)} "
+                    f"(10%: {_round2(r.amount * _GST_RATE)})"
+                    for r in candidates
+                )
+                errors.append(
+                    f"{currency}: unattributed GST {_round2(gst_gap)} cannot be "
+                    f"verified: no combination of 10% GST on Fees rows adds up to it "
+                    f"(candidates: {shown or 'none'}); re-run with "
+                    f"--accept-unattributed-gst to accept it as a lump sum"
+                )
             rows.append(
                 OutputRow(
                     date=statement.period_end,
@@ -256,6 +363,25 @@ def reconcile(
                 f"synthetic GST row (GST component {gst}, embedded in trades "
                 f"{_round2(gst - gst_gap)}, unattributed {_round2(gst_gap)})"
             )
+            if status in ("full", "unique"):
+                which = (
+                    "all" if status == "full" else f"{len(subset)} of {len(candidates)}"
+                )
+                notes.append(f"unattributed GST = 10% of {which} Fees row(s):")
+                for r in subset:
+                    notes.append(
+                        f"  {r.date} {r.description}: {_round2(r.amount)} "
+                        f"-> GST {_round2(r.amount * _GST_RATE)}"
+                    )
+            elif status == "ambiguous":
+                notes.append(
+                    "unattributed GST is consistent with 10% GST on the Fees "
+                    "section, but multiple fee-row combinations match; not itemised"
+                )
+            elif accept_unattributed_gst:
+                notes.append(
+                    "unattributed GST accepted unverified (--accept-unattributed-gst)"
+                )
 
         if not rows:
             continue  # no cash activity in this currency: no file

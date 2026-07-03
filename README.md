@@ -52,8 +52,13 @@ reviewed:
   as a period total with no per-transaction rows, so it is emitted as one line dated at the
   period end.
 - **`GST`** — GST charged on account fees is reported only as a period total (never as
-  dated rows); the unattributed part is emitted as one line, guarded by a strict envelope
-  check against the Cash Report's GST component.
+  dated rows; IB itemises it only in its separate *Statement of Funds* report). The tool
+  verifies the amount is exactly 10% GST on specific `Fees` rows and lists those rows in
+  the run report (or flags the combination as ambiguous), then emits the total as one
+  line. The rest of the GST component must be 10% of trade commissions, already embedded
+  in the trade rows. GST that cannot be verified this way rejects the input unless
+  `--accept-unattributed-gst` is given; either way a strict envelope check against the
+  Cash Report's GST component applies.
 - **`ROUNDING`** — the residual from rounding full-precision IB amounts to 2 decimal
   places, only when nonzero and within a strict tolerance (½ cent per line). Anything
   larger is treated as an error and rejects the input.
@@ -103,6 +108,10 @@ unless `--force-overwrite` is given.
 Zero-amount transactions (e.g. option expiries) are included by default so the output
 mirrors the statement; pass `-s`/`--skip-zero-transactions` to omit them (they carry no
 cash and Xero discards them on import anyway).
+
+A GST amount that cannot be verified as 10% GST on specific fee rows normally rejects
+the input; pass `--accept-unattributed-gst` to accept it as a single lump-sum line
+anyway (it must still fit inside the Cash Report's GST component).
 
 ```
 account U1234567, period 2026-06-01 to 2026-06-30

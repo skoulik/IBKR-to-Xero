@@ -38,12 +38,17 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
       Interest section), corporate actions (all rows tagged `CORP`, cash via the trades
       bucket), transaction fees (embedded in trade Comm/Fee — cross-checked, not re-emitted),
       SYEP collateral lines ignored
-- [ ] **M3.1 — Investigate unattributed GST**: GST charged on account fees (e.g. 10% on AUD
-      withdrawal fees) appears in no dated row of the statement — only as the Cash Report
-      `GST` component. It is currently emitted as a synthetic period-end line tagged `GST`,
-      guarded by an envelope check. Investigate whether IB can itemise it (GST/VAT Details
-      section exists in some exports but not in the FY Activity Statement) so the synthetic
-      line can be replaced by dated rows.
+- [x] **M3.1 — Investigate unattributed GST**: research (2026-07-03; findings in
+      `planning/2026-07-03-unattributed-gst-research.md`) confirmed the Activity Statement
+      genuinely does not itemise GST on account fees — dated GST entries exist only in
+      IB's separate *Statement of Funds* report, and the GST/HST/PST Details statement
+      section currently covers Canadian taxes only. Implemented instead: the unattributed
+      GST must verify as exactly 10% GST on a subset of `Fees` rows (contributing rows are
+      listed in the run report; ambiguous combinations accepted but not itemised) and the
+      embedded part as ≈0 or ≈10% of the `Commissions` component; anything unverifiable
+      rejects the input unless `--accept-unattributed-gst` is passed. Future option:
+      accept a Statement of Funds export as a companion input so the synthetic period-end
+      `GST` line can be replaced by dated rows.
 - [ ] **M3.2 — Robustness**: multiple statement files in one run, richer error reporting
 - [ ] **M3.3 — More asset classes**: investigate/add further trade categories such as
       warrants (also structured products, CFDs, mutual funds as they come up). No example

@@ -60,9 +60,18 @@ back a web/Telegram front-end or a Xero API adaptor (see TODO.md M4/M5).
   per-trade transaction fees (HK stamp duty); the Cash Report splits these into
   `Commissions`, `GST` and `Transaction Fees` components. The Transaction Fees *section*
   is a breakdown of amounts already inside Comm/Fee — cross-check it, never re-emit it.
-- GST on account fees appears in **no dated row** — only in the `GST` component. The gap
-  between the component and the GST embedded in trades becomes a synthetic `GST` row,
-  guarded by an envelope check (same sign as, and no larger than, the component).
+- For Australian accounts the Cash Report `GST` component = 10% × trade commissions on
+  GST-liable exchanges (embedded in each trade's `Comm/Fee`; 0 for e.g. US exchanges)
+  + 10% × fees for services supplied by IBKR Australia itself (withdrawal fees,
+  market-data subscriptions — charged as separate cash with **no dated row** in this
+  export). Third-party pass-through fees (ADR, dividend handling) attract none. Dated GST
+  entries exist only in IB's separate *Statement of Funds* report; the statement's
+  GST/HST/PST Details section currently covers Canadian taxes only. Reconciliation
+  verifies both parts: embedded must be ≈0 or ≈10% of the `Commissions` component, and
+  the unattributed gap must equal 10% of a subset of `Fees` rows (listed in the notes;
+  ambiguous subset ⇒ accepted but not itemised) before it becomes the synthetic `GST`
+  row. Unverifiable GST ⇒ reject, unless `--accept-unattributed-gst` is passed; the
+  envelope check (same sign as, no larger than the component) always applies.
 - Only `DataDiscriminator == "Order"` Trades rows are transactions
   (`SubTotal`/`Total` rows are aggregates).
 - **Bonds** trade like stocks; coupons and purchase/sale accrued interest arrive as rows
