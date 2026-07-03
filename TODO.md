@@ -56,7 +56,12 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
       instrument type moved to the Reference column (`STOCK`/`BOND`/`OPTION`/`FUTURE`).
       Reference outputs in `examples/` regenerated from verified output (Date/Amount
       proven identical to the hand-made originals, kept as `*.csv.orig`).
-- [ ] **M3.2 — Robustness**: multiple statement files in one run, richer error reporting
+- [ ] **M3.2 — Robustness**: richer error reporting. *Multiple statements in one run was
+      dropped (2026-07-03): it would blur the per-statement all-or-nothing guarantee and
+      the one-statement/one-folder/one-report output model for little gain — users can
+      run the tool per statement (or loop in a script). Possible future item instead: a
+      cross-statement continuity check (statement N+1 Starting Cash == statement N
+      Ending Cash) to catch a missing period — a verification aid, not batch conversion.*
 - [ ] **M3.3 — More asset classes**: investigate/add further trade categories such as
       warrants (also structured products, CFDs, mutual funds as they come up). No example
       CSV available yet — the strict converter will reject the statement when one first
