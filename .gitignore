@@ -10,3 +10,6 @@ out/
 
 # Real IB statements contain sensitive account data - never commit
 examples/
+
+# Planning artifacts that quote real account data (see planning/README.md)
+planning/*.private.md
