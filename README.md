@@ -93,7 +93,7 @@ In the IB Client Portal, download an Activity Statement in **CSV** format:
 Once you have the statement CSV:
 
 ```sh
-ibkr2xero statement.csv           # writes next to the statement file
+ibkr2xero statement.csv           # writes into statement/ next to the file
 ibkr2xero statement.csv -o out/   # or into a chosen directory
 ```
 

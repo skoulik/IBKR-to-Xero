@@ -65,12 +65,21 @@ def test_cli_skip_zero(statement_csv, tmp_path, capsys):
     assert "skipped" in capsys.readouterr().out
 
 
-def test_cli_default_output_is_statement_folder(statement_csv, tmp_path):
+def test_cli_default_output_is_statement_subfolder(statement_csv, tmp_path):
     stmt = tmp_path / statement_csv.name
     stmt.write_bytes(statement_csv.read_bytes())
     assert main([str(stmt)]) == 0
-    assert (tmp_path / "AUD.csv").exists()
-    assert (tmp_path / "USD.csv").exists()
+    out_dir = tmp_path / statement_csv.stem
+    assert (out_dir / "AUD.csv").exists()
+    assert (out_dir / "USD.csv").exists()
+
+
+def test_cli_default_output_extensionless_gets_out_suffix(statement_csv, tmp_path):
+    stmt = tmp_path / "statement"
+    stmt.write_bytes(statement_csv.read_bytes())
+    assert main([str(stmt)]) == 0
+    assert (tmp_path / "statement_out" / "AUD.csv").exists()
+    assert (tmp_path / "statement_out" / "USD.csv").exists()
 
 
 def test_cli_refuses_to_overwrite_without_force(statement_csv, tmp_path, capsys):

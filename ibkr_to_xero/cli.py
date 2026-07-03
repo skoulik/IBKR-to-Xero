@@ -27,7 +27,8 @@ def main(argv: list[str] | None = None) -> int:
         "--output-dir",
         type=Path,
         default=None,
-        help="output directory (default: the statement file's directory)",
+        help="output directory (default: a subfolder next to the statement, "
+        "named after it without the extension)",
     )
     parser.add_argument(
         "-f",
@@ -69,7 +70,13 @@ def main(argv: list[str] | None = None) -> int:
         f"account {statement.account or '?'}, period "
         f"{statement.period_start} to {statement.period_end}"
     )
-    out_dir = args.output_dir if args.output_dir is not None else args.statement.parent
+    if args.output_dir is not None:
+        out_dir = args.output_dir
+    else:
+        subfolder = args.statement.stem
+        if subfolder == args.statement.name:  # no extension to strip
+            subfolder += "_out"
+        out_dir = args.statement.parent / subfolder
     try:
         paths = write_results(results, out_dir, overwrite=args.force_overwrite)
     except FileExistsError as exc:
