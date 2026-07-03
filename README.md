@@ -114,6 +114,12 @@ ibkr2xero statement.csv -o out/   # or into a chosen directory
 Existing output files are never overwritten: the run aborts without writing anything
 unless `--force-overwrite` is given.
 
+The summary printed to the console is also saved into the output directory as
+`ibkr2xero_report.txt` (with the statement name and a timestamp on top). Pick another
+name with `-r`/`--report-name`, or turn the file off with `--no-save-report`. The report
+counts as an output file: it is covered by the overwrite check, and nothing is saved
+when the input is rejected.
+
 Zero-amount transactions (e.g. option expiries) are included by default so the output
 mirrors the statement; pass `-s`/`--skip-zero-transactions` to omit them (they carry no
 cash and Xero discards them on import anyway).

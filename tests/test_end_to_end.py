@@ -24,9 +24,10 @@ def test_cli_end_to_end(statement_csv, tmp_path, capsys):
     assert main([str(statement_csv), "-o", str(tmp_path)]) == 0
 
     written = sorted(p.name for p in tmp_path.iterdir())
-    assert written == ["AUD.csv", "USD.csv"]  # no HKD: no cash activity
+    # no HKD: no cash activity
+    assert written == ["AUD.csv", "USD.csv", "ibkr2xero_report.txt"]
 
-    for name in written:
+    for name in ("AUD.csv", "USD.csv"):
         assert _read(tmp_path / name) == _read(EXAMPLES / name)
 
     # The synthetic rows are part of the references; spot-check they exist.
@@ -36,6 +37,14 @@ def test_cli_end_to_end(statement_csv, tmp_path, capsys):
 
     out = capsys.readouterr().out
     assert "account U" in out
+    assert "report saved to" in out
+
+    # The saved report mirrors the console summary (filenames, not paths).
+    report = (tmp_path / "ibkr2xero_report.txt").read_text(encoding="utf-8")
+    assert "account U" in report
+    assert "AUD.csv:" in report
+    assert "USD.csv:" in report
+    assert f"statement: {statement_csv}" in report
 
 
 def test_cli_skip_zero(statement_csv, tmp_path, capsys):
@@ -123,6 +132,31 @@ def test_cli_accept_unattributed_gst_flag(tmp_path, capsys):
         "GST",
         "",
     ] in rows
+
+
+def test_cli_report_name_and_no_save_report(statement_csv, tmp_path):
+    custom = tmp_path / "custom"
+    assert main([str(statement_csv), "-o", str(custom), "-r", "run.txt"]) == 0
+    assert (custom / "run.txt").exists()
+    assert not (custom / "ibkr2xero_report.txt").exists()
+
+    off = tmp_path / "off"
+    assert main([str(statement_csv), "-o", str(off), "--no-save-report"]) == 0
+    assert not (off / "ibkr2xero_report.txt").exists()
+    assert sorted(p.name for p in off.iterdir()) == ["AUD.csv", "USD.csv"]
+
+
+def test_cli_existing_report_blocks_without_force(statement_csv, tmp_path, capsys):
+    report = tmp_path / "ibkr2xero_report.txt"
+    report.write_text("old", encoding="utf-8")
+    # All or nothing: a stale report blocks the run just like a stale CSV.
+    assert main([str(statement_csv), "-o", str(tmp_path)]) == 2
+    assert "already exist" in capsys.readouterr().err
+    assert not (tmp_path / "AUD.csv").exists()
+    assert report.read_text(encoding="utf-8") == "old"
+
+    assert main([str(statement_csv), "-o", str(tmp_path), "--force-overwrite"]) == 0
+    assert "account U" in report.read_text(encoding="utf-8")
 
 
 def test_cli_rejects_tampered_input(statement_csv, tmp_path, capsys):

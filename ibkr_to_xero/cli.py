@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import sys
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from .convert import convert
 from .model import ReconciliationError, StatementError
 from .parser import parse_statement
 from .reconcile import reconcile
-from .writer import write_results
+from .writer import write_report, write_results
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -42,6 +43,20 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="omit zero-amount transactions (e.g. option expiries) from the output; "
         "they carry no cash and Xero discards them on import anyway",
+    )
+    parser.add_argument(
+        "-r",
+        "--report-name",
+        default="ibkr2xero_report.txt",
+        help="file name for the conversion report saved into the output "
+        "directory (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--save-report",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="save the conversion report (the summary printed to the console) "
+        "alongside the output CSVs",
     )
     parser.add_argument(
         "--accept-unattributed-gst",
@@ -76,10 +91,11 @@ def main(argv: list[str] | None = None) -> int:
         # activity: no file.
         results = [r for r in results if r.rows]
 
-    print(
+    account_line = (
         f"account {statement.account or '?'}, period "
         f"{statement.period_start} to {statement.period_end}"
     )
+    print(account_line)
     if args.output_dir is not None:
         out_dir = args.output_dir
     else:
@@ -87,8 +103,11 @@ def main(argv: list[str] | None = None) -> int:
         if subfolder == args.statement.name:  # no extension to strip
             subfolder += "_out"
         out_dir = args.statement.parent / subfolder
+    report_name = args.report_name if args.save_report else None
     try:
-        paths = write_results(results, out_dir, overwrite=args.force_overwrite)
+        paths = write_results(
+            results, out_dir, overwrite=args.force_overwrite, report_name=report_name
+        )
     except FileExistsError as exc:
         print(f"error: {exc}", file=sys.stderr)
         print(
@@ -96,15 +115,31 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
+    report_lines = [
+        "ibkr2xero conversion report",
+        f"statement: {args.statement}",
+        f"generated: {dt.datetime.now():%Y-%m-%d %H:%M:%S}",
+        account_line,
+    ]
     for result, path in zip(results, paths):
-        print(
-            f"  {path}: {len(result.rows)} transactions, "
+        summary = (
+            f"{len(result.rows)} transactions, "
             f"cash {result.starting_cash} -> {result.ending_cash}"
         )
+        print(f"  {path}: {summary}")
+        report_lines.append(f"  {path.name}: {summary}")
         for note in result.notes:
             print(f"    note: {note}")
+            report_lines.append(f"    note: {note}")
     if not paths:
-        print("  no cash activity in any currency; nothing to write")
+        no_activity = "  no cash activity in any currency; nothing to write"
+        print(no_activity)
+        report_lines.append(no_activity)
+    if report_name is not None:
+        report_path = write_report(
+            out_dir, report_name, "\n".join(report_lines) + "\n"
+        )
+        print(f"  report saved to {report_path}")
     return 0
 
 

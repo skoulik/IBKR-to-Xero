@@ -47,7 +47,10 @@ back a web/Telegram front-end or a Xero API adaptor (see TODO.md M4/M5).
 - **reconcile.py** — cross-checks section sums against `Cash Report` components
   (e.g. `Trades (Sales)+Trades (Purchase)+Commissions+GST == Σ trade cash`) and enforces the
   Starting/Ending identity.
-- **writer.py** — emits `{CCY}.csv` per currency with activity; quiet currencies get no file.
+- **writer.py** — emits `{CCY}.csv` per currency with activity; quiet currencies get no
+  file. Also saves the run report (`write_report`; default `ibkr2xero_report.txt`,
+  `-r/--report-name`, off with `--no-save-report`) — the report is an output file too:
+  reserved in the overwrite check, never written on rejection.
 
 ## IB statement domain knowledge
 
