@@ -3,15 +3,11 @@
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 import sys
 from pathlib import Path
 
-from .convert import convert
+from .engine import RunOptions, run
 from .model import ReconciliationError, StatementError
-from .parser import parse_statement
-from .reconcile import reconcile
-from .writer import write_report, write_results
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -66,48 +62,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    options = RunOptions(
+        output_dir=args.output_dir,
+        force_overwrite=args.force_overwrite,
+        skip_zero_transactions=args.skip_zero_transactions,
+        report_name=args.report_name if args.save_report else None,
+        accept_unattributed_gst=args.accept_unattributed_gst,
+    )
+
     try:
-        statement = parse_statement(args.statement)
-        results = reconcile(
-            statement,
-            convert(statement),
-            accept_unattributed_gst=args.accept_unattributed_gst,
-        )
+        result = run(args.statement, options)
     except (StatementError, ReconciliationError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         print("no output files were written.", file=sys.stderr)
         return 2
-
-    if args.skip_zero_transactions:
-        # Safe only after reconciliation: zero rows contribute nothing to the
-        # sums, so dropping them cannot mask a mismatch.
-        for result in results:
-            kept = [row for row in result.rows if row.amount != 0]
-            skipped = len(result.rows) - len(kept)
-            if skipped:
-                result.rows = kept
-                result.notes.append(f"skipped {skipped} zero-amount transaction(s)")
-        # A currency left with no rows at all is treated like one with no
-        # activity: no file.
-        results = [r for r in results if r.rows]
-
-    account_line = (
-        f"account {statement.account or '?'}, period "
-        f"{statement.period_start} to {statement.period_end}"
-    )
-    print(account_line)
-    if args.output_dir is not None:
-        out_dir = args.output_dir
-    else:
-        subfolder = args.statement.stem
-        if subfolder == args.statement.name:  # no extension to strip
-            subfolder += "_out"
-        out_dir = args.statement.parent / subfolder
-    report_name = args.report_name if args.save_report else None
-    try:
-        paths = write_results(
-            results, out_dir, overwrite=args.force_overwrite, report_name=report_name
-        )
     except FileExistsError as exc:
         print(f"error: {exc}", file=sys.stderr)
         print(
@@ -115,31 +83,18 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
-    report_lines = [
-        "ibkr2xero conversion report",
-        f"statement: {args.statement}",
-        f"generated: {dt.datetime.now():%Y-%m-%d %H:%M:%S}",
-        account_line,
-    ]
-    for result, path in zip(results, paths):
-        summary = (
-            f"{len(result.rows)} transactions, "
-            f"cash {result.starting_cash} -> {result.ending_cash}"
-        )
-        print(f"  {path}: {summary}")
-        report_lines.append(f"  {path.name}: {summary}")
-        for note in result.notes:
+
+    # Report text carries bare filenames (the saved form); the console shows
+    # full paths, rebuilt here from the structured result.
+    print(result.account_line)
+    for file in result.files:
+        print(f"  {file.path}: {file.summary}")
+        for note in file.notes:
             print(f"    note: {note}")
-            report_lines.append(f"    note: {note}")
-    if not paths:
-        no_activity = "  no cash activity in any currency; nothing to write"
-        print(no_activity)
-        report_lines.append(no_activity)
-    if report_name is not None:
-        report_path = write_report(
-            out_dir, report_name, "\n".join(report_lines) + "\n"
-        )
-        print(f"  report saved to {report_path}")
+    if not result.files:
+        print("  no cash activity in any currency; nothing to write")
+    if result.report_path is not None:
+        print(f"  report saved to {result.report_path}")
     return 0
 
 
