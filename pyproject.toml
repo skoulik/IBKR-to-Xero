@@ -14,9 +14,13 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+gui = ["PySide6-Essentials>=6.7"]
 
 [project.scripts]
 ibkr2xero = "ibkr_to_xero.cli:main"
+
+[project.gui-scripts]
+ibkr2xero-gui = "ibkr_to_xero.gui:main"
 
 [tool.setuptools.packages.find]
 include = ["ibkr_to_xero*"]

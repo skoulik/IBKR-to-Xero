@@ -144,6 +144,29 @@ error: input rejected: cash does not reconcile (1 problem(s)):
 no output files were written.
 ```
 
+## Desktop GUI
+
+A one-window desktop companion wraps the same engine: drop (or open) a statement,
+tick the options, and get the report plus clickable links to the output files.
+It enforces the identical contract — reconcile or write nothing.
+
+The GUI is an optional extra (it pulls in Qt via PySide6):
+
+```sh
+pip install -e .[gui]
+ibkr2xero-gui
+```
+
+Drop an Activity Statement CSV onto the window (or right-click → **Open…**),
+adjust the options (skip zero-amount transactions, accept unattributed GST,
+save report, output folder), and click **Convert**. On success the report is shown verbatim
+with links that open each CSV and the saved report; on rejection the same area
+shows the error and *"No output files were written."* The report file name stays
+a CLI-only affordance (`-r`/`--report-name`); the GUI uses the default name and
+the **Save report** checkbox.
+
+![ibkr2xero desktop GUI](resources/gui.png)
+
 ## How reconciliation works
 
 1. **Cash Report internal consistency** — per currency, starting cash plus all reported

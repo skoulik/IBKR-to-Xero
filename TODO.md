@@ -73,8 +73,19 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
       check whether the column is named after the base currency and route the commission
       row to the base-currency file instead of hardcoding USD
       (`ibkr_to_xero/convert.py`, `_convert_forex_trade`).
+- [x] **M-GUI — Desktop GUI companion** (2026-07-08; plan in
+      `planning/2026-07-08-gui-companion-plan.md`): a one-shot PySide6 window over the
+      same engine. First the pipeline orchestration trapped in `cli.py` (output-dir
+      default rule, zero-transaction filtering, report-text assembly) was extracted into a
+      front-end-agnostic `engine.run(statement_path, RunOptions) -> RunResult`; the CLI is
+      now a thin argv→options→run→print/exit shell. `ibkr_to_xero/gui.py` (`ibkr2xero-gui`
+      entry point, optional `[gui]` extra) drives it on a worker thread with Idle/Busy/
+      Done/Error states, drag-and-drop, and an overwrite-confirm re-run. M4's web/Telegram
+      front-end and the M5 Xero adaptor reuse the same engine — the split is what makes
+      them cheap.
 - [ ] **M4 — Hosting** *(future)*: web (e.g. FastAPI) and/or Telegram bot front-end reusing the
-      same library core; drag-n-drop/upload or direct fetch from IB
+      same library core (the `engine.run` entry point the GUI already uses); drag-n-drop/upload
+      or direct fetch from IB
 - [ ] **M5 — Xero adaptor** *(future)*: push results straight to Xero via API instead of CSV import
 - [ ] **M6 — Distribution & release engineering**
   - [x] **LICENSE**: MIT, added 2026-07-03 (`LICENSE`, `license` in pyproject, README section)
