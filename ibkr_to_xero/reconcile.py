@@ -75,8 +75,12 @@ _COMPONENT_SECTION = {
 }
 
 # Converted rows are grouped into check buckets by source section; corporate
-# action cash flows through the Trades (Sales)/(Purchase) components.
-_SECTION_BUCKET = {"Corporate Actions": "Trades"}
+# action cash flows through the Trades (Sales)/(Purchase) components, and
+# post-trade commission adjustments through the Commissions component.
+_SECTION_BUCKET = {
+    "Corporate Actions": "Trades",
+    "Commission Adjustments": "Trades",
+}
 
 # Non-cash informational lines of the Cash Report (Stock Yield Enhancement
 # Program collateral tracking). They sit outside the Starting->Ending cash

@@ -54,8 +54,19 @@ _TRADE_REFERENCE = {"Stocks": "STOCK", "Bonds": "BOND", "Equity and Index Option
 _EVENT_CODES = (("A", "assigned"), ("Ep", "expired"))
 
 # Sections that share the simple Currency/Date/Description/Amount shape,
-# in the output order established by the reference examples.
-_SIMPLE_SECTIONS = ("Fees", "Deposits & Withdrawals", "Dividends", "Withholding Tax", "Interest")
+# in the output order established by the reference examples. Commission
+# Adjustments holds commissions IB priced after the trade was reported: the
+# trade's own Comm/Fee is 0 and the money arrives as a separate dated row
+# (it still lands in the Cash Report's Commissions component, so reconcile.py
+# checks it inside the trades bucket).
+_SIMPLE_SECTIONS = (
+    "Fees",
+    "Deposits & Withdrawals",
+    "Dividends",
+    "Withholding Tax",
+    "Interest",
+    "Commission Adjustments",
+)
 
 _CENT = Decimal("0.01")
 

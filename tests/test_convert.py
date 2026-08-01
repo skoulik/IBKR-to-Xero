@@ -208,3 +208,43 @@ def test_unknown_discriminator_rejected():
     statement.rows("Trades")[0].values["DataDiscriminator"] = "Wat"
     with pytest.raises(StatementError, match="unknown Trades DataDiscriminator 'Wat'"):
         convert(statement)
+
+
+def _commission_adjustment_row(currency="USD", amount="-0.3079", line_no=1) -> SectionRow:
+    return SectionRow(
+        "Commission Adjustments",
+        {
+            "Currency": currency,
+            "Date": "2026-06-18",
+            "Description": "Commission Computed After Trade Reported (XYZ)",
+            "Amount": amount,
+            "Code": "",
+        },
+        line_no,
+    )
+
+
+def test_commission_adjustment_is_a_dated_row_of_its_own():
+    # IB prices some commissions after the trade is reported: the trade's
+    # Comm/Fee is 0 and the money arrives here instead.
+    statement = _statement(
+        {
+            "Trades": [_trade_row(comm="0")],
+            "Commission Adjustments": [
+                _commission_adjustment_row(),
+                # the section's trailing aggregate must be skipped
+                SectionRow(
+                    "Commission Adjustments",
+                    {"Currency": "Total", "Date": "", "Description": "",
+                     "Amount": "-0.3079", "Code": ""},
+                    line_no=2,
+                ),
+            ],
+        }
+    )
+    trade, adjustment = convert(statement)["USD"]
+    assert trade.description == "+1 XYZ price: 5"  # zero comm omitted
+    assert adjustment.amount == Decimal("-0.3079")
+    assert adjustment.date == dt.date(2026, 6, 18)
+    assert adjustment.description == "Commission Computed After Trade Reported (XYZ)"
+    assert adjustment.source_section == "Commission Adjustments"

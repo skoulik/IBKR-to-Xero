@@ -81,6 +81,11 @@ back a web/Telegram front-end or a Xero API adaptor (see TODO.md M4/M5).
   than the component) always applies.
 - Only `DataDiscriminator == "Order"` Trades rows are transactions
   (`SubTotal`/`Total` rows are aggregates).
+- **Commission Adjustments** is a plain Currency/Date/Description/Amount section holding
+  commissions IB priced *after* the trade was reported (the trade's own `Comm/Fee` is 0).
+  This is extra cash, not a breakdown of `Comm/Fee` like Transaction Fees — the rows are
+  emitted verbatim, but their cash lands in the Cash Report `Commissions` component, so
+  reconcile.py buckets them with `Trades`.
 - **Bonds** trade like stocks; coupons and purchase/sale accrued interest arrive as rows
   of the Interest section (`Bond Interest Paid and Received` component).
 - **Futures** rows carry `Notional Value`, which never touches cash: only the per-trade

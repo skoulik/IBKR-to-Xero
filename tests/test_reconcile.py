@@ -338,3 +338,67 @@ def test_all_errors_reported_at_once(statement_csv, tmp_path):
     message = str(excinfo.value)
     assert "AUD: section 'Interest'" in message
     assert "USD: Cash Report does not add up" in message
+
+
+# --- post-trade commission adjustments ------------------------------------
+
+
+def _commission_adjustment_statement(with_section: bool) -> Statement:
+    """One AUD trade whose commission was billed separately afterwards.
+
+    The Cash Report folds the adjustment into the Commissions component, so
+    the adjustment row has to be checked inside the trades bucket.
+    """
+    sections: dict[str, list[SectionRow]] = {
+        "Cash Report": [
+            SectionRow("Cash Report", {"Currency Summary": name, "Currency": "AUD",
+                                       "Total": total}, line_no=i + 1)
+            for i, (name, total) in enumerate(
+                [
+                    ("Starting Cash", "100"),
+                    ("Trades (Sales)", "500"),
+                    ("Commissions", "-1.31"),
+                    ("Ending Cash", "598.69"),
+                ]
+            )
+        ],
+        "Trades": [
+            SectionRow(
+                "Trades",
+                dict(zip(
+                    ["DataDiscriminator", "Asset Category", "Currency", "Symbol",
+                     "Date/Time", "Quantity", "T. Price", "Proceeds", "Comm/Fee", "Code"],
+                    ["Order", "Stocks", "AUD", "XYZ", "2026-06-10, 10:00:00",
+                     "-100", "5", "500", "-1", ""],
+                )),
+                line_no=10,
+            )
+        ],
+    }
+    if with_section:
+        sections["Commission Adjustments"] = [
+            SectionRow(
+                "Commission Adjustments",
+                {"Currency": "AUD", "Date": "2026-06-11",
+                 "Description": "Commission Computed After Trade Reported (XYZ)",
+                 "Amount": "-0.31", "Code": ""},
+                line_no=20,
+            )
+        ]
+    return Statement(
+        sections=sections,
+        period_start=dt.date(2026, 6, 1),
+        period_end=_JUN30,
+    )
+
+
+def test_commission_adjustment_counts_against_commissions_component():
+    (result,) = _pipeline(_commission_adjustment_statement(with_section=True))
+    assert [r.amount for r in result.rows] == [Decimal("499"), Decimal("-0.31")]
+    assert not [r for r in result.rows if r.reference == "ROUNDING"]
+
+
+def test_missing_commission_adjustment_is_rejected():
+    # Sanity check that the trades bucket really is what catches this.
+    with pytest.raises(ReconciliationError, match=r"section 'Trades'.*off by 0.31"):
+        _pipeline(_commission_adjustment_statement(with_section=False))
