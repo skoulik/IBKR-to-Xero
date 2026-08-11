@@ -102,7 +102,11 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
         builds a **draft** release, `workflow_dispatch` does a dry run that attaches the
         installers to the workflow run instead. Both platforms ship one installer offering
         the GUI, the CLI, or both: Inno Setup on Windows, a `productbuild` package on
-        macOS (per-arch, since PySide6 has no universal2 wheels).
+        macOS (per-arch, since PySide6 has no universal2 wheels). A `.dmg` was considered
+        and declined: a disk image is only a mounted folder, so it cannot install the CLI
+        into `/usr/local/bin`, and Gatekeeper treats both formats identically while
+        unsigned. The cost is that macOS has no uninstaller (the format provides none);
+        the README documents the `rm` + `pkgutil --forget` steps instead.
       - Linux is deliberately **not** built: it would need an AppImage plus a
         glibc-compatible build container to be worth shipping, and Linux users can
         `pip install`. Revisit if anyone asks.

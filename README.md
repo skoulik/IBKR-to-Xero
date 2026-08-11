@@ -100,9 +100,22 @@ what the warning looks like and how to get past it:
   and newer, the old Control-click → Open trick no longer works.)
 
 Windows installs per-user by default and asks for no administrator rights; choose
-"Install for all users" on the first page if you want it machine-wide. Uninstall from
-**Settings → Apps** (Windows). On macOS, delete `/Applications/IBKR to Xero.app` and
-`/usr/local/bin/ibkr2xero`.
+"Install for all users" on the first page if you want it machine-wide.
+
+**Uninstalling.** On Windows, use **Settings → Apps** as usual. macOS packages carry no
+uninstaller — Apple provides no mechanism for one — so remove the files directly:
+
+```sh
+sudo rm -rf "/Applications/IBKR to Xero.app"
+sudo rm -f /usr/local/bin/ibkr2xero
+sudo pkgutil --forget com.sergeikulik.ibkr-to-xero.gui
+sudo pkgutil --forget com.sergeikulik.ibkr-to-xero.cli
+```
+
+The app alone can simply be dragged to the Trash. The two `pkgutil --forget` lines just
+clear the receipt database, so skipping them leaves nothing working behind. Neither
+platform stores settings or application data anywhere else — your output CSVs are the only
+other files, wherever you chose to write them.
 
 ### Or install from source
 

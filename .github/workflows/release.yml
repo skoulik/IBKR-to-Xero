@@ -26,9 +26,9 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       release: ${{ steps.version.outputs.release }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip
@@ -64,7 +64,7 @@ jobs:
     if: needs.check.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Create the draft release if it does not exist
         env:
           GH_TOKEN: ${{ github.token }}
@@ -81,9 +81,9 @@ jobs:
     if: ${{ !cancelled() && needs.check.result == 'success' && needs.draft.result != 'failure' }}
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip
@@ -111,7 +111,7 @@ jobs:
 
       - name: Attach the installer to the workflow run
         if: needs.check.outputs.release != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-installer
           path: release/IBKR-to-Xero-Setup-*-windows-x64.exe
@@ -131,9 +131,9 @@ jobs:
             arch: arm64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip
@@ -154,7 +154,7 @@ jobs:
 
       - name: Attach the installer to the workflow run
         if: needs.check.outputs.release != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-installer-${{ matrix.arch }}
           path: release/IBKR-to-Xero-*-macos-*.pkg
