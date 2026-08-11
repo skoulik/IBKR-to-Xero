@@ -10,7 +10,9 @@ $ErrorActionPreference = 'Stop'
 $buildRoot = 'build\release\windows'
 $distRoot = "$buildRoot\dist"
 $releaseRoot = 'release'
-$icon = 'assets\ibkr-to-xero.ico'
+# PyInstaller resolves --icon and --version-file relative to the spec file,
+# which --specpath puts inside the build tree; both must be absolute.
+$icon = (Resolve-Path 'assets\ibkr-to-xero.ico').Path
 
 Remove-Item -Recurse -Force $buildRoot -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $distRoot, $releaseRoot | Out-Null
@@ -19,7 +21,7 @@ New-Item -ItemType Directory -Force $distRoot, $releaseRoot | Out-Null
 # 1.2.3-rc1 becomes 1.2.3.0 in the file properties while the installer keeps
 # the full string.
 $numeric = ($Version -split '[-.]')[0..2] -join '.'
-$versionFile = "$buildRoot\file-version.txt"
+$versionFile = Join-Path (Resolve-Path $buildRoot).Path 'file-version.txt'
 $versionInfo = @"
 VSVersionInfo(
   ffi=FixedFileInfo(

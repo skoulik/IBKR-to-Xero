@@ -14,6 +14,9 @@ PACKAGES_ROOT="$BUILD_ROOT/packages"
 RESOURCES_ROOT="$BUILD_ROOT/resources"
 RELEASE_ROOT="release"
 BUNDLE_ID="com.sergeikulik.ibkr-to-xero"
+# PyInstaller resolves --icon relative to the spec file, which --specpath puts
+# inside the build tree, so it has to be absolute.
+ICON="$PWD/assets/ibkr-to-xero.icns"
 case "$(uname -m)" in
   arm64) ARCH="arm64" ;;
   x86_64) ARCH="x64" ;;
@@ -38,7 +41,7 @@ python -m PyInstaller --noconfirm --clean --noupx \
   --distpath "$DIST_ROOT/gui" \
   --name "IBKR to Xero" \
   --windowed --onedir \
-  --icon assets/ibkr-to-xero.icns \
+  --icon "$ICON" \
   --osx-bundle-identifier "$BUNDLE_ID" \
   --copy-metadata ibkr-to-xero \
   --collect-data ibkr_to_xero \
@@ -50,7 +53,7 @@ python -m PyInstaller --noconfirm --clean --noupx \
   --distpath "$DIST_ROOT/cli" \
   --name ibkr2xero \
   --onefile \
-  --icon assets/ibkr-to-xero.icns \
+  --icon "$ICON" \
   --copy-metadata ibkr-to-xero \
   --collect-data ibkr_to_xero \
   packaging/entrypoints/cli.py

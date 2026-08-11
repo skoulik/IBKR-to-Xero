@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <installer-gui-script minSpecVersion="2">
   <title>IBKR to Xero</title>
-  <options customize="always" require-scripts="false" rootVolumeOnly="true"/>
+  <options customize="always" require-scripts="false"/>
   <!-- Both components install into system locations (/Applications and
        /usr/local/bin), so only the system domain makes sense. -->
   <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
