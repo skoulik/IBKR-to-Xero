@@ -91,15 +91,33 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
   - [x] **LICENSE**: MIT, added 2026-07-03 (`LICENSE`, `license` in pyproject, README section)
   - [ ] **CI**: GitHub Actions workflow running `pytest` on push/PR (statement-dependent tests
         auto-skip since `examples/` is gitignored; consider a small synthetic fixture statement
-        so CI exercises the full pipeline too)
-  - [ ] **Versioning**: bump `pyproject.toml` version per release (semver), tag `vX.Y.Z`,
-        keep a short CHANGELOG
-  - [ ] **Self-contained binaries** for non-tech-savvy users: **on-demand releases only** —
-        the workflow must not run on ordinary commits/pushes. Trigger manually
-        (`workflow_dispatch`) or by explicitly pushing a `vX.Y.Z` tag when a release is
-        decided; it then builds single-file executables (e.g. PyInstaller `--onefile`) on a
-        Windows/macOS/Linux matrix and attaches them to the GitHub Release. Core is
-        stdlib-only, so bundles should stay small.
+        so CI exercises the full pipeline too). Partly covered: the release workflow already
+        gates every build on `pytest`, so a tag cannot ship code that fails the suite —
+        but ordinary pushes and PRs still run nothing.
+  - [x] **Versioning**: bump `pyproject.toml` version per release (semver), tag `vX.Y.Z`.
+        The release workflow refuses to build when the tag and `pyproject.toml` disagree.
+        A CHANGELOG is still open; releases currently use `gh --generate-notes`.
+  - [x] **Self-contained binaries** for non-tech-savvy users, 2026-08-11
+        (`.github/workflows/release.yml` + `packaging/`): on-demand only — a `vX.Y.Z` tag
+        builds a **draft** release, `workflow_dispatch` does a dry run that attaches the
+        installers to the workflow run instead. Both platforms ship one installer offering
+        the GUI, the CLI, or both: Inno Setup on Windows, a `productbuild` package on
+        macOS (per-arch, since PySide6 has no universal2 wheels).
+      - Linux is deliberately **not** built: it would need an AppImage plus a
+        glibc-compatible build container to be worth shipping, and Linux users can
+        `pip install`. Revisit if anyone asks.
+      - Nothing is code-signed. Windows SmartScreen and macOS Gatekeeper both warn on
+        first run; the README documents the click-through. Removing the warnings costs
+        $99/year (Apple Developer Program, which also unlocks notarisation) and a few
+        hundred a year for a Windows OV certificate on a hardware token.
+  - [ ] **Windows CLI: `--onefile` trips antivirus heuristics** (postponed 2026-08-11).
+        Kaspersky deleted the built `ibkr2xero.exe` during a local build; the `--onedir`
+        GUI beside it was untouched. The onefile bootloader extracts its DLLs to `%TEMP%`
+        and loads them from there, which reads as a dropper to behavioural scanners — and
+        it pays that unpack cost on every run. Switching the CLI to `--onedir` under
+        `{app}\cli` removes the behaviour (build script, the `[Files]` entry, and `AppPath`
+        in the installer's PATH code); macOS would stay onefile. Costs ~35-40 MB installed,
+        much less in the installer thanks to solid compression.
   - [ ] Python users keep `pip install -e .` (already documented in README); pipx/PyPI
         publishing deliberately **not** pursued for now
 

@@ -1,0 +1,160 @@
+name: Build release installers
+
+# Deliberately never runs on ordinary pushes. A tag build produces a draft
+# release; a manual run is a dry run that only attaches the installers to the
+# workflow run, so the pipeline can be exercised without minting a version.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# The draft job creates the release; the platform jobs upload into it.
+# Nothing here publishes a release.
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Tests and version check
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install the package and its test dependencies
+        run: python -m pip install --upgrade pip && python -m pip install ".[dev,gui]"
+
+      - name: Resolve the release version
+        id: version
+        run: |
+          project_version=$(python -c "from importlib.metadata import version; print(version('ibkr-to-xero'))")
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+            if [ "$tag_version" != "$project_version" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match pyproject.toml version $project_version." \
+                   "Bump the version, or retag, so the installers report the version they claim."
+              exit 1
+            fi
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$project_version" >> "$GITHUB_OUTPUT"
+          echo "Building version $project_version"
+
+      - name: Run the test suite
+        # The statement-dependent tests skip themselves: examples/ is gitignored.
+        run: pytest
+
+  draft:
+    name: Draft release
+    needs: check
+    if: needs.check.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create the draft release if it does not exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --draft --generate-notes \
+              --title "IBKR to Xero ${{ needs.check.outputs.version }}"
+          fi
+
+  windows:
+    name: Windows installer
+    needs: [check, draft]
+    # draft is skipped on a dry run, which would normally skip this job too.
+    if: ${{ !cancelled() && needs.check.result == 'success' && needs.draft.result != 'failure' }}
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install build dependencies
+        run: python -m pip install --upgrade pip && python -m pip install ".[dev,gui]" pyinstaller
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress --yes
+
+      - name: Build installer
+        shell: pwsh
+        run: .\packaging\windows\build-installer.ps1 -Version ${{ needs.check.outputs.version }}
+
+      - name: Upload to the draft release
+        if: needs.check.outputs.release == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # PowerShell does not expand wildcards for native commands, so the
+        # asset has to be resolved before gh sees it.
+        run: |
+          $asset = Get-ChildItem release\IBKR-to-Xero-Setup-*-windows-x64.exe | Select-Object -First 1
+          gh release upload $env:GITHUB_REF_NAME $asset.FullName --clobber
+
+      - name: Attach the installer to the workflow run
+        if: needs.check.outputs.release != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: release/IBKR-to-Xero-Setup-*-windows-x64.exe
+
+  macos:
+    name: macOS installer (${{ matrix.arch }})
+    needs: [check, draft]
+    if: ${{ !cancelled() && needs.check.result == 'success' && needs.draft.result != 'failure' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Intel macOS runners are supported until Fall 2027.
+          - runner: macos-15-intel
+            arch: x64
+          - runner: macos-14
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install build dependencies
+        run: python -m pip install --upgrade pip && python -m pip install '.[dev,gui]' pyinstaller
+
+      - name: Build installer
+        run: |
+          chmod +x packaging/macos/build-package.sh
+          packaging/macos/build-package.sh "${{ needs.check.outputs.version }}"
+
+      - name: Upload to the draft release
+        if: needs.check.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" release/IBKR-to-Xero-*-macos-*.pkg --clobber
+
+      - name: Attach the installer to the workflow run
+        if: needs.check.outputs.release != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-installer-${{ matrix.arch }}
+          path: release/IBKR-to-Xero-*-macos-*.pkg

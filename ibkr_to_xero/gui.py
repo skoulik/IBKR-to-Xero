@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from importlib import resources
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
@@ -20,6 +21,7 @@ try:
         QDragEnterEvent,
         QDropEvent,
         QFontDatabase,
+        QIcon,
     )
     from PySide6.QtWidgets import (
         QApplication,
@@ -54,6 +56,13 @@ def _app_version() -> str:
         return version("ibkr-to-xero")
     except PackageNotFoundError:  # running from a source tree without metadata
         return "dev"
+
+
+def _app_icon() -> QIcon:
+    """The window/dock icon, shipped as package data (see packaging/create_icon.py)."""
+    icon = resources.files("ibkr_to_xero") / "resources" / "app-icon.png"
+    with resources.as_file(icon) as path:
+        return QIcon(str(path)) if path.is_file() else QIcon()
 
 
 class ConversionWorker(QObject):
@@ -91,6 +100,7 @@ class MainWindow(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(f"ibkr2xero {_app_version()}")
+        self.setWindowIcon(_app_icon())
         self.setAcceptDrops(True)
         self.resize(640, 480)
 
@@ -434,7 +444,15 @@ class MainWindow(QWidget):
 
 
 def main() -> int:
+    if sys.platform == "win32":
+        # Without an explicit AppUserModelID the taskbar groups the window under
+        # the host interpreter and shows its icon instead of ours.
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("SergeiKulik.ibkr2xero")
+
     app = QApplication.instance() or QApplication(sys.argv)
+    app.setWindowIcon(_app_icon())
     window = MainWindow()
     window.show()
     return app.exec()

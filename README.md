@@ -78,6 +78,34 @@ currency.
 
 ## Install
 
+### Download an installer (no Python needed)
+
+Grab the installer for your platform from the
+[latest release](https://github.com/skoulik/IBKR-to-Xero/releases/latest). Each one bundles
+its own Python runtime, and lets you choose the desktop app, the `ibkr2xero` command-line
+tool, or both.
+
+| Platform | File |
+|---|---|
+| Windows 10/11 (64-bit) | `IBKR-to-Xero-Setup-<version>-windows-x64.exe` |
+| macOS, Apple silicon | `IBKR-to-Xero-<version>-macos-arm64.pkg` |
+| macOS, Intel | `IBKR-to-Xero-<version>-macos-x64.pkg` |
+
+**The installers are not code-signed.** Both systems will warn you on first run — this is
+what the warning looks like and how to get past it:
+
+- **Windows** — "Windows protected your PC". Click **More info**, then **Run anyway**.
+- **macOS** — "Apple could not verify …". Open **System Settings → Privacy & Security**,
+  scroll to the message about the blocked package, and click **Open Anyway**. (On macOS 15
+  and newer, the old Control-click → Open trick no longer works.)
+
+Windows installs per-user by default and asks for no administrator rights; choose
+"Install for all users" on the first page if you want it machine-wide. Uninstall from
+**Settings → Apps** (Windows). On macOS, delete `/Applications/IBKR to Xero.app` and
+`/usr/local/bin/ibkr2xero`.
+
+### Or install from source
+
 Requires Python 3.11+. No runtime dependencies (standard library only).
 
 ```sh

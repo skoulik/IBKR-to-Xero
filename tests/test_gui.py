@@ -13,7 +13,10 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PySide6")
-pytest.importorskip("pytestqt")
+# The submodule, not the package: an emptied-out pytestqt/ directory (an
+# antivirus quarantine leaves one behind) still imports as a namespace package,
+# and the test would then fail on the missing qtbot fixture instead of skipping.
+pytest.importorskip("pytestqt.plugin")
 
 from ibkr_to_xero.gui import MainWindow  # noqa: E402
 

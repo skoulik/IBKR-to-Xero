@@ -13,3 +13,6 @@ examples/
 
 # Planning artifacts that quote real account data (see planning/README.md)
 planning/*.private.md
+
+# Installers built by packaging/ - they belong on a GitHub Release, not in git
+release/

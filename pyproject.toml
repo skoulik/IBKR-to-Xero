@@ -25,5 +25,8 @@ ibkr2xero-gui = "ibkr_to_xero.gui:main"
 [tool.setuptools.packages.find]
 include = ["ibkr_to_xero*"]
 
+[tool.setuptools.package-data]
+ibkr_to_xero = ["resources/*.png"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

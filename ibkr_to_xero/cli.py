@@ -4,10 +4,18 @@ from __future__ import annotations
 
 import argparse
 import sys
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from .engine import RunOptions, run
 from .model import ReconciliationError, StatementError
+
+
+def _app_version() -> str:
+    try:
+        return version("ibkr-to-xero")
+    except PackageNotFoundError:  # running from a source tree without metadata
+        return "dev"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -17,6 +25,12 @@ def main(argv: list[str] | None = None) -> int:
             "Convert an IB Activity Statement CSV into per-currency Xero import CSVs. "
             "Refuses to write anything unless cash reconciles per currency."
         ),
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"ibkr2xero {_app_version()}",
+        help="show the version and exit",
     )
     parser.add_argument("statement", type=Path, help="IB Activity Statement CSV file")
     parser.add_argument(
