@@ -114,6 +114,18 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
         first run; the README documents the click-through. Removing the warnings costs
         $99/year (Apple Developer Program, which also unlocks notarisation) and a few
         hundred a year for a Windows OV certificate on a hardware token.
+        - Apple side checked 2026-09-09: Sergei holds Developer ID **Application** and
+          **Installer** certificates (team `Q4KANR5AC3`, private keys present, both valid
+          to 2027-03-03), but the Program membership has lapsed. `notarytool` therefore
+          fails at credential validation with `403 ... a required agreement is missing or
+          has expired`, and the account page offers only "Renew membership". Signing itself
+          still works offline (`--timestamp` uses a free server that ignores membership) —
+          notarisation does not, and notarisation is what clears Gatekeeper, so signing
+          alone would only reword the warning. Renewal would restore notarisation without
+          reissuing anything; after 2027-03-03 the certificates go too. If this is ever
+          wired up: the keychain holds three Application certs with identical common names
+          (two older G1-chained ones expiring 2027-02-01), so `codesign` must select by
+          SHA-1 fingerprint rather than by name.
   - [ ] **Windows CLI: `--onefile` trips antivirus heuristics** (postponed 2026-08-11).
         Kaspersky deleted the built `ibkr2xero.exe` during a local build; the `--onedir`
         GUI beside it was untouched. The onefile bootloader extracts its DLLs to `%TEMP%`
