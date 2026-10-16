@@ -126,6 +126,13 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
           wired up: the keychain holds three Application certs with identical common names
           (two older G1-chained ones expiring 2027-02-01), so `codesign` must select by
           SHA-1 fingerprint rather than by name.
+  - [ ] **macOS bundle identifier: move to the `com.skoulik` prefix** (Sergei, 2026-10-16),
+        the form his other apps use (`com.skoulik.calmnest`). Today it is
+        `com.sergeikulik.ibkr-to-xero`: `BUNDLE_ID` in `packaging/macos/build-package.sh`,
+        which the `.gui` and `.cli` package identifiers derive from, and the `pkg-ref` ids in
+        `packaging/macos/distribution.xml`. The GUI keeps no preferences, so nothing else is
+        keyed on it. A Mac that installed an earlier release keeps its receipts under the old
+        identifiers, so the README's `pkgutil --forget` steps should name both.
   - [ ] **Windows CLI: `--onefile` trips antivirus heuristics** (postponed 2026-08-11).
         Kaspersky deleted the built `ibkr2xero.exe` during a local build; the `--onedir`
         GUI beside it was untouched. The onefile bootloader extracts its DLLs to `%TEMP%`
