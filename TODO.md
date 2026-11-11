@@ -59,9 +59,9 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
 - [ ] **M3.2 — Robustness**: richer error reporting. *Multiple statements in one run was
       dropped (2026-07-03): it would blur the per-statement all-or-nothing guarantee and
       the one-statement/one-folder/one-report output model for little gain — users can
-      run the tool per statement (or loop in a script). Possible future item instead: a
-      cross-statement continuity check (statement N+1 Starting Cash == statement N
-      Ending Cash) to catch a missing period — a verification aid, not batch conversion.*
+      run the tool per statement (or loop in a script). The cross-statement continuity
+      check (period N+1 Starting Cash == period N Ending Cash) is now part of M-FLEX, where
+      every fetch is checked against the stored one before it.*
 - [ ] **M3.3 — More asset classes**: investigate/add further trade categories such as
       warrants (also structured products, CFDs, mutual funds as they come up). No example
       CSV available yet — the strict converter will reject the statement when one first
@@ -83,9 +83,15 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
       Done/Error states, drag-and-drop, and an overwrite-confirm re-run. M4's web/Telegram
       front-end and the M5 Xero adaptor reuse the same engine — the split is what makes
       them cheap.
+- [ ] **M-FLEX — Flex Web Service fetch into a local store** (planned 2026-11-11;
+      `planning/2026-11-11-flex-store-plan.md`): fetch from IBKR's Flex Web Service on each
+      run into an encrypted per-user store holding several accounts, its periods checked to
+      join up by cash, and export not-yet-imported transactions as Xero CSVs, counted once the
+      user confirms the import. Engine and CLI first, then the GUI. Gated on a real Flex
+      export (the plan's I1, I2).
 - [ ] **M4 — Hosting** *(future)*: web (e.g. FastAPI) and/or Telegram bot front-end reusing the
-      same library core (the `engine.run` entry point the GUI already uses); drag-n-drop/upload
-      or direct fetch from IB
+      same library core (the `engine.run` entry point the GUI already uses); drag-n-drop/upload,
+      or the M-FLEX store for direct fetch from IB
 - [ ] **M5 — Xero adaptor** *(future)*: push results straight to Xero via API instead of CSV import
 - [ ] **M6 — Distribution & release engineering**
   - [x] **LICENSE**: MIT, added 2026-07-03 (`LICENSE`, `license` in pyproject, README section)
@@ -146,5 +152,6 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
 
 ## Input acquisition (stage 1)
 
-Local files provided by the user on the command line. Other channels (upload, drag-n-drop,
-IB Flex Query / TWS fetch) are deliberately deferred — see M4.
+Local files provided by the user on the command line or dropped on the GUI. Fetching from
+IBKR's Flex Web Service is planned as M-FLEX; upload channels are deferred to M4. TWS and the
+Client Portal trading API carry no statements.
