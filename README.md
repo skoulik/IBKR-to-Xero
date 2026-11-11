@@ -91,13 +91,9 @@ tool, or both.
 | macOS, Apple silicon | `IBKR-to-Xero-<version>-macos-arm64.pkg` |
 | macOS, Intel | `IBKR-to-Xero-<version>-macos-x64.pkg` |
 
-**The installers are not code-signed.** Both systems will warn you on first run — this is
-what the warning looks like and how to get past it:
-
-- **Windows** — "Windows protected your PC". Click **More info**, then **Run anyway**.
-- **macOS** — "Apple could not verify …". Open **System Settings → Privacy & Security**,
-  scroll to the message about the blocked package, and click **Open Anyway**. (On macOS 15
-  and newer, the old Control-click → Open trick no longer works.)
+The macOS packages are signed and notarised by Apple, so they open without a warning.
+**The Windows installer is not code-signed**, so SmartScreen says "Windows protected your
+PC" on first run: click **More info**, then **Run anyway**.
 
 Windows installs per-user by default and asks for no administrator rights; choose
 "Install for all users" on the first page if you want it machine-wide.
@@ -108,12 +104,12 @@ uninstaller — Apple provides no mechanism for one — so remove the files dire
 ```sh
 sudo rm -rf "/Applications/IBKR to Xero.app"
 sudo rm -f /usr/local/bin/ibkr2xero
-sudo pkgutil --forget com.sergeikulik.ibkr-to-xero.gui
-sudo pkgutil --forget com.sergeikulik.ibkr-to-xero.cli
+sudo pkgutil --forget com.skoulik.ibkr-to-xero.gui
+sudo pkgutil --forget com.skoulik.ibkr-to-xero.cli
 ```
 
-The app alone can simply be dragged to the Trash. The two `pkgutil --forget` lines just
-clear the receipt database, so skipping them leaves nothing working behind. Neither
+The app alone can simply be dragged to the Trash. The `pkgutil --forget` lines just clear
+the receipt database, so skipping them leaves nothing working behind. Neither
 platform stores settings or application data anywhere else — your output CSVs are the only
 other files, wherever you chose to write them.
 

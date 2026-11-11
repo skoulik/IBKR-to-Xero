@@ -110,29 +110,26 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
       - Linux is deliberately **not** built: it would need an AppImage plus a
         glibc-compatible build container to be worth shipping, and Linux users can
         `pip install`. Revisit if anyone asks.
-      - Nothing is code-signed. Windows SmartScreen and macOS Gatekeeper both warn on
-        first run; the README documents the click-through. Removing the warnings costs
-        $99/year (Apple Developer Program, which also unlocks notarisation) and a few
-        hundred a year for a Windows OV certificate on a hardware token.
-        - Apple side checked 2026-09-09: Sergei holds Developer ID **Application** and
-          **Installer** certificates (team `Q4KANR5AC3`, private keys present, both valid
-          to 2027-03-03), but the Program membership has lapsed. `notarytool` therefore
-          fails at credential validation with `403 ... a required agreement is missing or
-          has expired`, and the account page offers only "Renew membership". Signing itself
-          still works offline (`--timestamp` uses a free server that ignores membership) —
-          notarisation does not, and notarisation is what clears Gatekeeper, so signing
-          alone would only reword the warning. Renewal would restore notarisation without
-          reissuing anything; after 2027-03-03 the certificates go too. If this is ever
-          wired up: the keychain holds three Application certs with identical common names
-          (two older G1-chained ones expiring 2027-02-01), so `codesign` must select by
-          SHA-1 fingerprint rather than by name.
-  - [ ] **macOS bundle identifier: move to the `com.skoulik` prefix** (Sergei, 2026-10-16),
-        the form his other apps use (`com.skoulik.calmnest`). Today it is
-        `com.sergeikulik.ibkr-to-xero`: `BUNDLE_ID` in `packaging/macos/build-package.sh`,
-        which the `.gui` and `.cli` package identifiers derive from, and the `pkg-ref` ids in
-        `packaging/macos/distribution.xml`. The GUI keeps no preferences, so nothing else is
-        keyed on it. A Mac that installed an earlier release keeps its receipts under the old
-        identifiers, so the README's `pkgutil --forget` steps should name both.
+      - **macOS packages are signed and notarised** (2026-11-11), on every run, dry runs
+        included: the app and the CLI by PyInstaller (`--codesign-identity`: hardened
+        runtime, secure timestamp, inside-out), the product package by `productbuild
+        --sign`, then `notarytool` with an App Store Connect API key, `stapler` and an
+        `spctl` assessment; a last step runs the CLI and launches the app from the
+        package's own payload. The identities are Sergei's Developer ID Application and
+        Installer pair (team `Q4KANR5AC3`), selected by SHA-1 in the workflow because older
+        certificates share their common names, and valid to 2027-12-09 — Apple issues them
+        for about a year, so the fingerprints and the `MACOS_CERT_*` secrets are renewed
+        yearly. Without the secrets the workflow fails rather than ship an unsigned
+        package; `build-package.sh` alone still builds unsigned when given no identity.
+      - **Windows is not code-signed**: SmartScreen warns on first run and the README
+        documents the click-through. Clearing it needs an OV certificate on a hardware
+        token (a few hundred a year), which is not held.
+  - [x] **Identifiers on the `com.skoulik` prefix** (2026-11-11; Sergei's convention since
+        2026-10-16): the macOS bundle and package identifiers are
+        `com.skoulik.ibkr-to-xero[.gui|.cli]`, the Windows taskbar AppUserModelID
+        `skoulik.ibkr2xero`. 0.1.0 installed under `com.sergeikulik.*` receipts; the
+        README names only the new ones (Sergei's call). The GUI keeps no preferences, so
+        no Qt organisation name is set and nothing else is keyed on either.
   - [ ] **Windows CLI: `--onefile` trips antivirus heuristics** (postponed 2026-08-11).
         Kaspersky deleted the built `ibkr2xero.exe` during a local build; the `--onedir`
         GUI beside it was untouched. The onefile bootloader extracts its DLLs to `%TEMP%`

@@ -449,7 +449,7 @@ def main() -> int:
         # the host interpreter and shows its icon instead of ours.
         import ctypes
 
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("SergeiKulik.ibkr2xero")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("skoulik.ibkr2xero")
 
     app = QApplication.instance() or QApplication(sys.argv)
     app.setWindowIcon(_app_icon())

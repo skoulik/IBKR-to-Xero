@@ -14,14 +14,14 @@
   <choice id="gui" title="Desktop GUI"
           description="Install IBKR to Xero.app in Applications."
           start_selected="true" start_enabled="true" start_visible="true">
-    <pkg-ref id="com.sergeikulik.ibkr-to-xero.gui"/>
+    <pkg-ref id="com.skoulik.ibkr-to-xero.gui"/>
   </choice>
   <choice id="cli" title="Command-line tool"
           description="Install the ibkr2xero command in /usr/local/bin."
           start_selected="true" start_enabled="true" start_visible="true">
-    <pkg-ref id="com.sergeikulik.ibkr-to-xero.cli"/>
+    <pkg-ref id="com.skoulik.ibkr-to-xero.cli"/>
   </choice>
 
-  <pkg-ref id="com.sergeikulik.ibkr-to-xero.gui">IBKR-to-Xero-GUI.pkg</pkg-ref>
-  <pkg-ref id="com.sergeikulik.ibkr-to-xero.cli">IBKR-to-Xero-CLI.pkg</pkg-ref>
+  <pkg-ref id="com.skoulik.ibkr-to-xero.gui">IBKR-to-Xero-GUI.pkg</pkg-ref>
+  <pkg-ref id="com.skoulik.ibkr-to-xero.cli">IBKR-to-Xero-CLI.pkg</pkg-ref>
 </installer-gui-script>

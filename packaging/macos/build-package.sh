@@ -13,7 +13,30 @@ STAGE_ROOT="$BUILD_ROOT/stage"
 PACKAGES_ROOT="$BUILD_ROOT/packages"
 RESOURCES_ROOT="$BUILD_ROOT/resources"
 RELEASE_ROOT="release"
-BUNDLE_ID="com.sergeikulik.ibkr-to-xero"
+BUNDLE_ID="com.skoulik.ibkr-to-xero"
+# Signing is optional, so a local build works without the identities. When
+# MACOS_APP_IDENTITY / MACOS_INSTALLER_IDENTITY name identities (by SHA-1: the
+# signing keychain holds several certificates with the same common name) in an
+# unlocked keychain on the search list, the app and the CLI are signed with the
+# hardened runtime and the product package with the Installer identity, ready
+# for notarisation. MACOS_KEYCHAIN, if set, is passed to productbuild.
+APP_IDENTITY="${MACOS_APP_IDENTITY:-}"
+INSTALLER_IDENTITY="${MACOS_INSTALLER_IDENTITY:-}"
+KEYCHAIN="${MACOS_KEYCHAIN:-}"
+PYI_SIGN=()
+PRODUCT_SIGN=()
+if [[ -n "$APP_IDENTITY" ]]; then
+  # PyInstaller signs every collected binary inside-out with the hardened
+  # runtime and a secure timestamp - including those packed into the onefile
+  # CLI, which are signed before being embedded.
+  PYI_SIGN=(--codesign-identity "$APP_IDENTITY")
+fi
+if [[ -n "$INSTALLER_IDENTITY" ]]; then
+  PRODUCT_SIGN=(--sign "$INSTALLER_IDENTITY" --timestamp)
+  if [[ -n "$KEYCHAIN" ]]; then
+    PRODUCT_SIGN+=(--keychain "$KEYCHAIN")
+  fi
+fi
 # PyInstaller resolves --icon relative to the spec file, which --specpath puts
 # inside the build tree, so it has to be absolute.
 ICON="$PWD/assets/ibkr-to-xero.icns"
@@ -43,6 +66,7 @@ python -m PyInstaller --noconfirm --clean --noupx \
   --windowed --onedir \
   --icon "$ICON" \
   --osx-bundle-identifier "$BUNDLE_ID" \
+  ${PYI_SIGN[@]+"${PYI_SIGN[@]}"} \
   --copy-metadata ibkr-to-xero \
   --collect-data ibkr_to_xero \
   packaging/entrypoints/gui.py
@@ -54,11 +78,19 @@ python -m PyInstaller --noconfirm --clean --noupx \
   --name ibkr2xero \
   --onefile \
   --icon "$ICON" \
+  ${PYI_SIGN[@]+"${PYI_SIGN[@]}"} \
   --copy-metadata ibkr-to-xero \
   --collect-data ibkr_to_xero \
   packaging/entrypoints/cli.py
 
-cp -R "$DIST_ROOT/gui/IBKR to Xero.app" "$STAGE_ROOT/gui/Applications/"
+if [[ -n "$APP_IDENTITY" ]]; then
+  codesign --verify --deep --strict --verbose=2 "$DIST_ROOT/gui/IBKR to Xero.app"
+  codesign --verify --strict --verbose=2 "$DIST_ROOT/cli/ibkr2xero"
+fi
+
+# ditto, not cp -R: it keeps the bundle's symlinks and extended attributes
+# exactly as signed.
+ditto "$DIST_ROOT/gui/IBKR to Xero.app" "$STAGE_ROOT/gui/Applications/IBKR to Xero.app"
 cp "$DIST_ROOT/cli/ibkr2xero" "$STAGE_ROOT/cli/usr/local/bin/ibkr2xero"
 chmod 755 "$STAGE_ROOT/cli/usr/local/bin/ibkr2xero"
 cp LICENSE "$RESOURCES_ROOT/LICENSE"
@@ -86,8 +118,14 @@ pkgbuild \
   --install-location / \
   "$PACKAGES_ROOT/IBKR-to-Xero-CLI.pkg"
 
+PRODUCT="$RELEASE_ROOT/IBKR-to-Xero-$VERSION-macos-$ARCH.pkg"
 productbuild \
   --distribution packaging/macos/distribution.xml \
   --package-path "$PACKAGES_ROOT" \
   --resources "$RESOURCES_ROOT" \
-  "$RELEASE_ROOT/IBKR-to-Xero-$VERSION-macos-$ARCH.pkg"
+  ${PRODUCT_SIGN[@]+"${PRODUCT_SIGN[@]}"} \
+  "$PRODUCT"
+
+if [[ -n "$INSTALLER_IDENTITY" ]]; then
+  pkgutil --check-signature "$PRODUCT"
+fi
