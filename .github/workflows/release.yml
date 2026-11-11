@@ -200,8 +200,10 @@ jobs:
             xcrun notarytool log "$id" --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$KEY_ID" --issuer "$ISSUER_ID"
             echo "::error::notarisation: $status"; exit 1
           fi
+          # staple validates as it goes ("The staple and validate action
+          # worked!"); a separate `stapler validate` only adds another round
+          # trip to Apple's ticket server, which once dropped the connection.
           xcrun stapler staple "$PKG"
-          xcrun stapler validate "$PKG"
           spctl --assess --type install -vvv "$PKG"
 
       # The hardened runtime is the likeliest thing to break a PyInstaller
