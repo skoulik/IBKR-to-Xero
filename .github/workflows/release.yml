@@ -138,7 +138,7 @@ jobs:
           # Intel macOS runners are supported until Fall 2027.
           - runner: macos-15-intel
             arch: x64
-          - runner: macos-14
+          - runner: macos-15
             arch: arm64
     runs-on: ${{ matrix.runner }}
     steps:
