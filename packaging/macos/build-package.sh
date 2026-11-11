@@ -40,11 +40,13 @@ fi
 # PyInstaller resolves --icon relative to the spec file, which --specpath puts
 # inside the build tree, so it has to be absolute.
 ICON="$PWD/assets/ibkr-to-xero.icns"
-case "$(uname -m)" in
-  arm64) ARCH="arm64" ;;
-  x86_64) ARCH="x64" ;;
-  *) echo "Unsupported macOS architecture: $(uname -m)" >&2; exit 1 ;;
-esac
+# Apple silicon only: Intel Macs are not supported, and PyInstaller builds for
+# the architecture it runs on (PySide6 has no universal2 wheels).
+if [[ "$(uname -m)" != "arm64" ]]; then
+  echo "Build on Apple silicon: Intel Macs are not supported (this is $(uname -m))." >&2
+  exit 1
+fi
+ARCH="arm64"
 
 rm -rf "$BUILD_ROOT"
 mkdir -p \

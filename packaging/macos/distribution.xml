@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <installer-gui-script minSpecVersion="2">
   <title>IBKR to Xero</title>
-  <options customize="always" require-scripts="false"/>
+  <!-- Apple silicon only: on an Intel Mac, Installer refuses up front instead
+       of installing an app that cannot run there. -->
+  <options customize="always" require-scripts="false" hostArchitectures="arm64"/>
   <!-- Both components install into system locations (/Applications and
        /usr/local/bin), so only the system domain makes sense. -->
   <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
