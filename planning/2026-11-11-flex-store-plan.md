@@ -1,10 +1,11 @@
 # Flex Web Service and a local store — plan
 
-*Agreed 2026-11-11. Fetch account data from IBKR's Flex Web Service into a local store
-whose date ranges join up, and generate the Xero CSVs from the store instead of from a
-hand-downloaded Activity Statement. Same contract as today: reconcile or write nothing.
-Every design question is decided (D1–D15); what remains is to investigate (I1, I2), and
-that needs a real Flex export.*
+*Agreed 2026-11-11, revised 2026-11-12 after real Flex exports. Fetch account data from
+IBKR's Flex Web Service into a local store whose date ranges join up, and generate the
+Xero CSVs from the store instead of from a hand-downloaded Activity Statement. Same
+contract as today: reconcile or write nothing. Every design question is decided
+(D1–D17), and both facts the engine depended on are established (I1, I2): the engine
+work can start.*
 
 ## Background
 
@@ -20,6 +21,9 @@ that needs a real Flex export.*
 - **Flex rows carry stable IDs** (trade and transaction IDs), which the Activity Statement
   CSV lacks. That is what makes a store workable: the same transaction arriving in two
   fetches is recognisable, and so is a transaction already exported.
+- **A fetch selects rows by report date (I1).** A transaction belongs to the period that
+  holds its report date, whatever its own date, so consecutive fetches join with no gap and
+  no overlap, and a period once reported never changes.
 - **Ranges are checked by cash, not only by dates.** Each fetch has Starting and Ending
   Cash per currency; a fetch's Starting Cash must equal the previous one's Ending Cash
   (TODO M3.2's continuity check, enforced on every run).
@@ -39,25 +43,23 @@ that needs a real Flex export.*
   tracking account, posting to share purchases and share sales; options share one
   inventory account, with purchases and sales posted by manual journal. Many nuances, to
   be discussed then.
-- **D5 — Backdated transactions: re-fetch a year, only when the cash does not add up.**
-  IBKR adds backdated transactions that were not there before, up to about half a year
-  back (Sergei's experience). A run normally fetches only the days since the last one. A
-  backdated entry that moves cash makes that fetch's Starting Cash disagree with the
-  stored Ending Cash; the run then re-fetches the **trailing 365 days** — one request,
-  twice the observed horizon — and compares it with the store by transaction ID. New IDs
-  are backdated additions and go into the next export; IDs that vanished or changed are
-  corrections and are reported. If the window's Starting Cash still disagrees with the
-  store's Ending Cash the day before it, the change reaches further back than a year and
-  the run rejects, saying so.
-  *Accepted gap:* a backdated entry that moves no cash (e.g. a zero-amount corporate
-  action) is not noticed. It carries no cash, and Xero discards zero-amount lines on
-  import, so the CSVs are unaffected — but share quantities are, which matters once M5
-  tracks stock as inventory. Revisit then.
+- **D5 — Periods join by report date; backdated transactions need no special handling**
+  *(revised 2026-11-12)*. Backdated transactions are old-dated rows turning up in a newer
+  report (Sergei's experience, confirmed by I1), never an old period rewritten. Since a fetch
+  selects by report date, each run fetches from the day after the stored data ends, and a
+  backdated row simply arrives in it. **Output rows carry their own dates** (Sergei), as the
+  Activity Statement path does: a refund dated a year back is exported dated a year back.
+  The cash continuity check stays as a tripwire: if a fetch's Starting Cash ever disagrees
+  with the stored Ending Cash, the run rejects, saying so — nothing re-fetches
+  automatically. **A manual re-fetch is available** (Sergei): the user names a stored range,
+  the tool fetches it again and compares it with the store by transaction ID, and reports
+  what was added, removed or changed. Nothing is stored unless the user then confirms; a
+  confirmed re-fetch is kept beside the originals it overlaps (D6) and, being newer,
+  supersedes them for its range whenever the database is built. A changed transaction
+  already exported is listed for the user to correct in Xero by hand.
 - **D6 — Originals as the record, a database for speed.** Every fetched report is kept
   exactly as received, one immutable file per fetch, self-describing (a Flex report carries
-  its own date range and generation time; D14); a re-fetched window (D5) supersedes older
-  files for its range without deleting them, so a correction can always be traced. Parsed
-  transactions live in an SQLite
+  its own date range and generation time; D14). Parsed transactions live in an SQLite
   database (`sqlite3`, standard library — no new dependency) for fast queries. **The
   database is derived and disposable:** it records the version of the parsing it was built
   with, and when a release changes that version — a fixed bug, a newly mapped field — the
@@ -73,16 +75,20 @@ that needs a real Flex export.*
   the originals there are not a backup in themselves. They can be re-fetched from IBKR,
   year by year. The export record (D6) can be restored approximately from Xero (Sergei):
   the date of the last statement line in each currency's Xero bank account marks what was
-  imported. *Gap:* a backdated transaction (D5) dated before that mark but never exported
-  would be taken as exported; a restore should list the transactions near the mark for the
-  user to check against Xero.
-- **D8 — Encrypted at rest: the originals and the database.** Python's standard library
+  imported. *Gap:* the mark is an own date, while transactions are counted by report date
+  (D5) — a backdated transaction reported after the mark but dated before it is ambiguous.
+  A restore treats transactions reported after the mark as not imported, and lists the
+  ones dated before it for the user to check against Xero.
+- **D8 — Compressed, then encrypted at rest: the originals and the database.** Every
+  stored file is compressed with `zlib` (standard library) and then encrypted — never the
+  other way round, since ciphertext does not compress. Flex XML compresses about 18×: a
+  year of Sergei's account is 10.7 MB as received and 0.58 MB compressed. Python's standard library
   has no symmetric encryption, so this adds a dependency (`cryptography`, AES-GCM); the
   converter itself stays standard-library only. The database cannot be encrypted by the
   standard `sqlite3` (SQLCipher would mean a native build to package and sign), so it is
-  held in memory while the tool runs and stored as an encrypted image: decrypted and
-  loaded with `Connection.deserialize` on start, written back with `serialize` and
-  encrypted on save (both Python 3.11+, already the minimum). At a few MB per account
+  held in memory while the tool runs and stored as a compressed, encrypted image:
+  decrypted and loaded with `Connection.deserialize` on start, written back with
+  `serialize` on save (both Python 3.11+, already the minimum). At a few MB per account
   that costs nothing noticeable.
 - **D9 — The key lives in the OS credential store, with no recovery key.** A random key
   per store in Windows Credential Manager or the macOS Keychain, through the `keyring`
@@ -122,9 +128,9 @@ that needs a real Flex export.*
   or a balance that year. If the earliest date given is further back, it fetches backwards
   to it in 365-day chunks, and a currency appearing only in older data is asked about when
   found. Typed-in currency codes were declined: a missed one would mean a missing CSV with
-  nothing to flag it. To check against a real export: exactly which currencies the Flex
-  Cash Report includes (with no balance and no activity, presumably none — harmless,
-  having nothing to export).
+  nothing to flag it. The Flex Cash Report lists every currency holding a balance, even
+  one with no activity in the period (CNH and JPY in Sergei's June 2026, which the Activity
+  Statement leaves out); such a currency is asked about too and produces no file.
 - **D14 — Folder structure: everything encrypted, nothing readable by name.** Someone
   holding a copy of the folder learns neither which accounts it holds nor what periods —
   only file sizes and times.
@@ -141,8 +147,9 @@ that needs a real Flex export.*
 
   Local rather than roaming application data on Windows, so the data stays on the machine
   whose Credential Manager holds its key (D9); Time Machine includes the macOS folder.
-  Originals are named by a hash of their content, so an identical re-fetch is recognised;
-  their date ranges live inside them, so a database rebuild (D6) reads each file to learn
+  Originals are named by a hash of their content, which gives unique names that reveal
+  nothing — not recognition of a repeated fetch, since every report carries its own
+  generation time; their date ranges live inside them, so a database rebuild (D6) reads each file to learn
   it. The export record is a file of its own, out of a rebuild's reach. One key covers the
   whole store (D9). **Exported CSVs are not kept here:** the user has to find them to import
   into Xero, so they go to a visible folder of the user's choosing — by default one under
@@ -150,38 +157,78 @@ that needs a real Flex export.*
 - **D15 — Engine and CLI first, then the GUI; released once both have it.** The CLI is the
   quickest way to build and test the engine against real data (the order the GUI companion
   followed); inexperienced users, who need the GUI's guided first run most, never meet a
-  CLI-only version. CLI: `ibkr2xero fetch`, `ibkr2xero export [--to DATE]` (D10; a range for
-  a re-export), confirming imports, adding and selecting accounts (D7); the existing
+  CLI-only version. CLI: `ibkr2xero fetch` (with a range for a manual re-fetch, D5),
+  `ibkr2xero export [--to DATE]` (D10; a range for a re-export), confirming imports,
+  adding and selecting accounts (D7); the existing
   one-statement mode unchanged. GUI, a first sketch (Sergei): a tab per account, and a tab
   for converting a hand-downloaded Activity Statement as today.
+- **D16 — A schema validator checks the user's Flex query** *(Sergei, 2026-11-12)*. Every
+  fetch is checked before anything is stored: the required sections (table below) present,
+  each with its required attributes on every row, the required levels of detail, XML
+  format and `yyyyMMdd`/`HHmmss`/`;` date formats; anything missing rejects, naming the
+  section, field or option and what to tick. IBKR's AI configurator makes this
+  essential: it timed out on "every section", and on a narrower prompt picked the
+  sections but only a handful of columns in each. *What the XML cannot show:* a section
+  with no rows in the period carries no attributes, so its columns are checked when a row
+  first appears; an unticked cash-transaction type (e.g. Commission Adjustments) leaves no
+  trace, but its cash is still in the Cash Report, so reconciliation rejects the period.
+- **D17 — Descriptions are Flex's own wording** *(Sergei, 2026-11-12)*. Pass-through rows (cash
+  transactions, corporate actions) differ from the Activity Statement's: upper case and
+  abbreviated (`USD DEBIT INT FOR MAY-2026` for `USD Debit Interest for May-2026`; ADR fees
+  gain ` - FEE`). No Xero rule matches on them, and reproducing the statement's wording
+  would be guesswork. Trade descriptions follow the existing grammar and come out
+  identical, except a bond's symbol, which Flex gives without the statement's coupon
+  suffix (`TII 2 3/8 02/15/55`, not `… 0.0%`).
 
-## To investigate — needs a real Flex export
+## Established from real Flex exports (2026-11-12)
 
-These are not decisions but facts to establish, and they gate the engine work. They need
-Sergei's own Flex token and an Activity Flex Query (XML) covering every section below. The
-token is a credential: it is stored on his machine without passing through a transcript or
-a file in the repository, and the fetched reports are real account data, kept in the
-gitignored `examples/` like the statements are.
+Sergei's Activity Flex Query `ibkr2xero` (XML), built by IBKR's AI configurator and
+completed by hand (Select All in each section; Account Information and Transfers added).
+Reports for June 2026 and FY 2025-26 were fetched, converted through a prototype adaptor
+into the converter's statement model, and compared with the Activity Statements for the
+same periods. The reports are real account data, kept in the gitignored `examples/flex/`.
+Fetching a month took about 5 s; a year about 8 min (one attempt gave up after 10).
+Two clients polling one token hit the rate limit (error 1018) and must back off.
 
-### I1 — How backdated entries look in Flex
+### I1 — Backdated entries
 
-Flex rows carry several dates (for cash transactions, at least a transaction date and a
-report date); a backdated entry may show as an old transaction date with a recent report
-date, which would also tell us whether a date-range request selects by one or the other.
-Cross-check Flex fetches against Activity Statement CSVs downloaded for the same periods
-(Sergei's suggestion), including an old period fetched before and after a known backdated
-entry.
+- **`fd`/`td` select by report date.** Every row of a fetch has its `reportDate` inside
+  the window, while 33 withholding-tax rows in FY 2025-26 carry own dates from Feb–Jun
+  2025. Two of them (dated 2025-02-07, reported 2026-02-04) are in a fetch of 1–10 Feb 2026
+  and not in one of 1–10 Feb 2025, which holds the original charges they correct.
+- **What is late:** withholding-tax refunds and corrections, reported 1–12 months after
+  their own date, most at the turn of the year. Every other kind of row is reported within
+  −1…+3 days of its own date.
+- **Cash joins across a boundary:** May 2026 Ending Cash equals June 2026 Starting Cash
+  in every currency, and the year reconciles with the late rows inside it.
+- **The Activity Statement does the same:** the FY statement downloaded in July holds the
+  same late rows and still matches the November fetch row for row.
 
-### I2 — Mapping Flex sections onto the converter
+### I2 — Mapping onto the converter
 
-Every section the converter reads today needs its Flex counterpart: Cash Report (with its
-components, which reconciliation checks against), Trades (stocks, options, futures, bonds,
-forex), Transaction Fees, Commission Adjustments, Corporate Actions, and the cash
-transactions (deposits and withdrawals, dividends, withholding tax, interest, fees) —
-mapped field by field, and proven by converting the same period from both sources to
-identical output. Whatever the user's query omits, the tool must detect and reject, naming
-the missing section or field — a query configured by IBKR's AI is not guaranteed complete.
-Also: which currencies the Flex Cash Report includes (D13).
+**Proven by conversion:** June 2026 and FY 2025-26 (AUD, GBP, HKD, USD; about 2,650 rows
+covering stocks, options, futures, bonds, forex legs and fees, HK stamp duty, corporate
+actions, GST verification and attribution, MTM and rounding) give the same rows, dates,
+amounts, Reference tags and report notes from both sources; descriptions differ only as
+D17 says. These are also the sections the validator requires (D16):
+
+| Converter needs | Flex section and rows | Fields |
+|---|---|---|
+| Period, account | `FlexStatement` | `fromDate`, `toDate`, `accountId` |
+| Base currency | `AccountInformation` — attributes on the element, no rows | `currency` |
+| Cash Report | `CashReport` › `CashReportCurrency`, one per currency (`levelOfDetail="Currency"`); no base summary | one attribute per component: `startingCash`, `endingCash`, `endingSettledCash`, `commissions`, `salesTax` (GST), `transactionTax` (Transaction Fees), `netTradesSales`, `netTradesPurchases`, `deposits`, `withdrawals`, `accountTransfers`, `dividends`, `paymentInLieu`, `withholdingTax`, `brokerInterest`, `bondInterest`, `otherFees`, `cashSettlingMtm`, `fxTranslationGainLoss`; `slb*` are the SYEP collateral lines. Not components: `depositWithdrawals` (deposits + withdrawals), `…Com`/`…Sec` (per-segment splits), `…MTD`/`…YTD` (running totals, on long periods). Any other nonzero attribute is an unknown component ⇒ reject. |
+| Trades | `Trades` › `Order` rows (`Trade` rows are its executions) | `assetCategory` STK/OPT/FUT/BOND/CASH; Symbol = `symbol`, but `description` for options (their `symbol` is the exchange code, e.g. `CSLNN8`); `dateTime`, `quantity`, `tradePrice`, `proceeds`; Comm/Fee = `ibCommission` + `taxes` (GST on the commission, stamp duty); Code = `notes`; a forex commission is `ibCommission` in `ibCommissionCurrency` |
+| Transaction Fees | `TransactionTaxes`, `SUMMARY` rows — one per taxed trade; the statement's zero rows do not appear | `currency`, `symbol`, `date` (a date-time), `taxAmount` |
+| Corporate Actions | `CorporateActions` › `DETAIL` | `currency`, `dateTime`, `proceeds`, `actionDescription` |
+| Fees, Dividends, Withholding Tax, Interest, Commission Adjustments, Deposits & Withdrawals | `CashTransactions` › `DETAIL`, routed by `type`: Other Fees; Dividends, Payment In Lieu Of Dividends; Withholding Tax; Broker/Bond Interest Paid/Received; Commission Adjustments (none seen yet); Deposits/Withdrawals | `currency`, `dateTime` (date part; `settleDate` for deposits and withdrawals), `description`, `amount`. An unknown `type` ⇒ reject. |
+| Internal transfers (Deposits & Withdrawals) | `Transfers` › `TRANSFER` rows with `assetCategory="CASH"`; position transfers carry no cash | `currency`, `date` (its `settleDate` is a day earlier than the statement's), `cashTransfer`. The description is `--`; rebuilt as `Internal Transfer In From Account {account}` (`Out To` unverified). |
+
+**Not used yet:** `SalesTaxes` (GST Details) itemises GST with a date, and each row names
+the taxed item by `taxableTransactionID` — fee rows directly; GST on a trade commission
+names an ID absent from the report but describes the trade (`AU Goods and Services Tax
+(Sell 1 CSLZA8)`). It could replace reconcile.py's subset-sum attribution of GST on fees
+(TODO). Statement of Funds and Option Exercises/Assignments/Expirations are in the query
+but unused.
 
 ## Out of scope
 

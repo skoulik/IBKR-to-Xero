@@ -87,8 +87,9 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
       `planning/2026-11-11-flex-store-plan.md`): fetch from IBKR's Flex Web Service on each
       run into an encrypted per-user store holding several accounts, its periods checked to
       join up by cash, and export not-yet-imported transactions as Xero CSVs, counted once the
-      user confirms the import. Engine and CLI first, then the GUI. Gated on a real Flex
-      export (the plan's I1, I2).
+      user confirms the import. Engine and CLI first, then the GUI. Flex selects by report
+      date, so periods join with no re-fetching; the field mapping and the query validator's
+      requirements were established from real exports on 2026-11-12 (the plan's I1, I2).
 - [ ] **M4 — Hosting** *(future)*: web (e.g. FastAPI) and/or Telegram bot front-end reusing the
       same library core (the `engine.run` entry point the GUI already uses); drag-n-drop/upload,
       or the M-FLEX store for direct fetch from IB
