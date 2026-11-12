@@ -34,19 +34,29 @@ All money arithmetic uses `decimal.Decimal`; floats are forbidden for amounts.
 ## Architecture
 
 Pipeline in `ibkr_to_xero/`: `parser.py` → `convert.py` → `reconcile.py` → `writer.py`,
-driven by `cli.py`. The core is a pure library (no I/O besides parser/writer) so it can later
-back a web/Telegram front-end or a Xero API adaptor (see TODO.md M4/M5).
+orchestrated by `engine.run`, which `cli.py` and `gui.py` drive. The core is a pure library
+(no I/O besides parser/writer) so it can later back a web/Telegram front-end or a Xero API
+adaptor (see TODO.md M4/M5).
 
-- **parser.py** — IB statements are many CSV sections in one file. Each row is
-  `SectionName,Header|Data,...`; a `Header` row defines the column names for the `Data` rows
-  after it. A section can re-emit `Header` rows (e.g. `Trades` per asset category) — the parser
-  keeps a running current-header per section. First cell carries a UTF-8 BOM.
-- **convert.py** — maps in-scope sections (Trades, Deposits & Withdrawals, Fees, Dividends,
-  Withholding Tax, Interest) to output rows per currency; builds synthetic rows
-  (`MTM`, `ROUNDING` — tagged in the Reference column).
-- **reconcile.py** — cross-checks section sums against `Cash Report` components
-  (e.g. `Trades (Sales)+Trades (Purchase)+Commissions+GST == Σ trade cash`) and enforces the
-  Starting/Ending identity.
+- **model.py** — the typed `Statement` every front end produces and `convert`/`reconcile`
+  consume: trades, corporate actions, cash transactions (by `CashKind`, whose value names
+  the reconciliation bucket), tax items (stamp duty), and the Cash Report as
+  currency → component → amount. Records carry a source `id`, a `where` for error messages
+  (`line 57`) and a `report_date` where the source has one. No source format leaks past
+  the front end (plan D18: the Flex report parser will produce the same model).
+- **parser.py** — the Activity Statement CSV front end, in two stages. `parse_sections`:
+  IB statements are many CSV sections in one file. Each row is `SectionName,Header|Data,...`;
+  a `Header` row defines the column names for the `Data` rows after it. A section can
+  re-emit `Header` rows (e.g. `Trades` per asset category) — the parser keeps a running
+  current-header per section. First cell carries a UTF-8 BOM. `to_statement` then maps the
+  in-scope sections onto the model, skipping aggregate rows and rejecting unknown trade
+  discriminators and asset categories.
+- **convert.py** — maps the model's records to output rows per currency, in a fixed order
+  (trades, corporate actions, then cash transactions by kind).
+- **reconcile.py** — cross-checks bucket sums against `Cash Report` components
+  (e.g. `Trades (Sales)+Trades (Purchase)+Commissions+GST == Σ trade cash`), enforces the
+  Starting/Ending identity, and builds the synthetic rows (`MTM`, `GST`, `ROUNDING` — tagged
+  in the Reference column).
 - **writer.py** — emits `{CCY}.csv` per currency with activity; quiet currencies get no
   file. Also saves the run report (`write_report`; default `ibkr2xero_report.txt`,
   `-r/--report-name`, off with `--no-save-report`) — the report is an output file too:

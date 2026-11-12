@@ -30,13 +30,12 @@ from dataclasses import replace
 from decimal import ROUND_HALF_UP, Decimal
 
 from .model import (
-    CURRENCY_RE,
     CurrencyResult,
     OutputRow,
     ReconciliationError,
     Statement,
     StatementError,
-    parse_money,
+    TaxKind,
 )
 
 # Exact-arithmetic checks tolerate only representation noise, not real cash.
@@ -173,45 +172,6 @@ def _attribute_gst_gap(
     return "ambiguous", []
 
 
-def _cash_report(statement: Statement) -> dict[str, dict[str, Decimal]]:
-    """Per-currency component amounts from the Cash Report section.
-
-    The Cash Report is organised in blocks, each opened by a "Starting Cash"
-    row: first the base-currency summary, then one block per actual currency.
-    Rows must be bucketed by their *block*, not their own Currency cell — the
-    base block can contain rows whose Currency cell names a real currency
-    (e.g. GST charged in AUD shown converted to a base-USD line).
-    """
-    report: dict[str, dict[str, Decimal]] = {}
-    rows = statement.rows("Cash Report")
-    if not rows:
-        raise StatementError("statement has no Cash Report section; cannot reconcile")
-    block_currency: str | None = None
-    for row in rows:
-        component = row["Currency Summary"]
-        if component == "Starting Cash":
-            block_currency = row["Currency"]
-            if CURRENCY_RE.match(block_currency) and block_currency in report:
-                raise StatementError(
-                    f"line {row.line_no}: duplicate Cash Report block for {block_currency}"
-                )
-        if block_currency is None:
-            raise StatementError(
-                f"line {row.line_no}: Cash Report row before any 'Starting Cash' block"
-            )
-        if not CURRENCY_RE.match(block_currency):
-            continue  # base-currency summary block: out of scope
-        amount = parse_money(row["Total"])
-        per_ccy = report.setdefault(block_currency, {})
-        if component in per_ccy:
-            raise StatementError(
-                f"line {row.line_no}: duplicate Cash Report component "
-                f"{component!r} for {block_currency}"
-            )
-        per_ccy[component] = amount
-    return report
-
-
 def reconcile(
     statement: Statement,
     converted: dict[str, list[OutputRow]],
@@ -225,17 +185,18 @@ def reconcile(
     accept_unattributed_gst accepts a GST amount that cannot be verified as
     10% GST on specific rows (it must still pass the envelope check).
     """
-    report = _cash_report(statement)
+    report = statement.cash_report
+    if not report:
+        raise StatementError("statement has no Cash Report; cannot reconcile")
     errors: list[str] = []
     results: list[CurrencyResult] = []
 
     txfees_by_currency: dict[str, Decimal] = {}
-    for row in statement.rows("Transaction Fees"):
-        fee_currency = row.values.get("Currency", "")
-        if CURRENCY_RE.match(fee_currency):
-            txfees_by_currency[fee_currency] = txfees_by_currency.get(
-                fee_currency, Decimal(0)
-            ) + parse_money(row["Amount"])
+    for item in statement.tax_items:
+        if item.kind is TaxKind.STAMP_DUTY:
+            txfees_by_currency[item.currency] = (
+                txfees_by_currency.get(item.currency, Decimal(0)) + item.amount
+            )
 
     stray = sorted(set(converted) - set(report))
     if stray:

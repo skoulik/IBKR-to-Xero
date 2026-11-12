@@ -66,13 +66,12 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
       warrants (also structured products, CFDs, mutual funds as they come up). No example
       CSV available yet — the strict converter will reject the statement when one first
       appears, which is the signal to add support.
-- [ ] **M3.4 — Forex commission currency**: the Trades Forex header says `Comm in USD`,
-      but the account's base currency *is* USD, so it may really mean "Comm in *base
-      currency*" with a dynamic header. The base currency is available in the statement
-      (`Account Information` → `Base Currency`). When a non-USD-base example exists,
-      check whether the column is named after the base currency and route the commission
-      row to the base-currency file instead of hardcoding USD
-      (`ibkr_to_xero/convert.py`, `_convert_forex_trade`).
+- [x] **M3.4 — Forex commission currency** (2026-11-12): the Trades Forex header says
+      `Comm in USD` on a USD-base account, so IB may charge it in the *base* currency with
+      the header naming it (Sergei's expectation). The parser now takes the currency from
+      the column's own name (`Comm in XXX`) and rejects a forex row without exactly one
+      such column, so either way the fee row lands in the right file. Unverified against a
+      non-USD-base statement. A Flex report states each trade's `ibCommissionCurrency`.
 - [x] **M-GUI — Desktop GUI companion** (2026-07-08; plan in
       `planning/2026-07-08-gui-companion-plan.md`): a one-shot PySide6 window over the
       same engine. First the pipeline orchestration trapped in `cli.py` (output-dir

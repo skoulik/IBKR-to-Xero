@@ -11,7 +11,10 @@ independent check on the amounts.
 
 import csv
 
+from ibkr_to_xero import parse_statement
 from ibkr_to_xero.cli import main
+from ibkr_to_xero.model import fmt_number
+from tests import builders
 from tests.conftest import EXAMPLES
 
 
@@ -32,7 +35,8 @@ def test_cli_end_to_end(statement_csv, tmp_path, capsys):
 
     # The synthetic rows are part of the references; spot-check they exist.
     usd = _read(tmp_path / "USD.csv")
-    assert [row[1] for row in usd if row[4] == "MTM"] == ["2575"]
+    mtm = parse_statement(statement_csv).cash_report["USD"]["Cash Settling MTM"]
+    assert [row[1] for row in usd if row[4] == "MTM"] == [fmt_number(mtm)]
     assert len([row for row in usd if row[4] == "ROUNDING"]) == 1
 
     out = capsys.readouterr().out
@@ -160,14 +164,10 @@ def test_cli_existing_report_blocks_without_force(statement_csv, tmp_path, capsy
 
 
 def test_cli_rejects_tampered_input(statement_csv, tmp_path, capsys):
-    text = statement_csv.read_text(encoding="utf-8-sig")
-    tampered = tmp_path / "tampered.csv"
-    tampered.write_text(
-        text.replace(
-            "Interest,Data,AUD,2026-06-03,AUD Debit Interest for May-2026,-1108.33",
-            "Interest,Data,AUD,2026-06-03,AUD Debit Interest for May-2026,-1108.34",
-        ),
-        encoding="utf-8",
+    tampered = builders.tampered_csv(
+        statement_csv,
+        tmp_path,
+        (builders.data_row("Interest", "AUD"), builders.add_to_cell(-1, "-0.01")),
     )
     out_dir = tmp_path / "out"
     assert main([str(tampered), "-o", str(out_dir)]) == 2

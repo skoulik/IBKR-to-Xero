@@ -1,8 +1,14 @@
-"""Typed model for a parsed IB Activity Statement and converter output."""
+"""Typed model of a statement period, shared by every front end, and converter output.
+
+The Activity Statement CSV parser (parser.py) and, later, the Flex report parser
+each produce a Statement; convert.py and reconcile.py only ever see this model,
+never a source format.
+"""
 
 from __future__ import annotations
 
 import datetime as dt
+import enum
 import re
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
@@ -44,7 +50,7 @@ def parse_money(text: str) -> Decimal:
 
 @dataclass
 class SectionRow:
-    """One Data row of a statement section, keyed by its Header columns."""
+    """One Data row of an Activity Statement CSV section, keyed by its Header columns."""
 
     section: str
     values: dict[str, str]
@@ -60,17 +66,110 @@ class SectionRow:
             ) from None
 
 
+class AssetClass(enum.Enum):
+    """Trade instrument types; the value is the output's Reference tag."""
+
+    STOCK = "STOCK"
+    OPTION = "OPTION"
+    FUTURE = "FUTURE"
+    BOND = "BOND"
+    FOREX = "FX"
+
+
+class CashKind(enum.Enum):
+    """Cash transactions by the bucket the Cash Report checks them in.
+
+    The value doubles as the bucket's name in reports and errors, and fixes the
+    output order (this declaration order).
+    """
+
+    FEE = "Fees"
+    DEPOSIT_WITHDRAWAL = "Deposits & Withdrawals"
+    DIVIDEND = "Dividends"
+    WITHHOLDING = "Withholding Tax"
+    INTEREST = "Interest"
+    COMMISSION_ADJUSTMENT = "Commission Adjustments"
+
+
+class TaxKind(enum.Enum):
+    STAMP_DUTY = "stamp_duty"  # per-trade transaction tax, already inside its commission
+
+
+@dataclass(frozen=True)
+class Record:
+    """Fields every source record carries.
+
+    id: the source's identifier — IBKR's transaction ID where it has one, else
+        the source line number. where: how an error message points at it
+        ("line 57"). report_date: when IBKR reported it, where the source says.
+    """
+
+    id: str
+    where: str
+    report_date: dt.date | None
+
+
+@dataclass(frozen=True)
+class Trade(Record):
+    when: dt.datetime
+    currency: str  # the trade's cash currency (a forex pair's quote currency)
+    asset_class: AssetClass
+    symbol: str
+    quantity: Decimal
+    price: Decimal | None
+    proceeds: Decimal | None  # None where the source leaves it empty (futures)
+    commission: Decimal  # as charged, any GST and transaction taxes included
+    commission_currency: str
+    codes: frozenset[str]  # lifecycle codes: "A" assigned, "Ep" expired, ...
+
+
+@dataclass(frozen=True)
+class CorporateAction(Record):
+    when: dt.datetime
+    currency: str
+    description: str
+    proceeds: Decimal
+
+
+@dataclass(frozen=True)
+class CashTxn(Record):
+    date: dt.date
+    currency: str
+    kind: CashKind
+    description: str
+    amount: Decimal
+
+
+@dataclass(frozen=True)
+class TaxItem(Record):
+    """A tax already inside some other row's amount, itemised for display and checks."""
+
+    when: dt.datetime
+    currency: str
+    kind: TaxKind
+    symbol: str
+    amount: Decimal
+
+
 @dataclass
 class Statement:
-    """A parsed multi-section IB Activity Statement."""
+    """One statement period, as every front end delivers it.
 
-    sections: dict[str, list[SectionRow]]
+    Records keep source order within each list. cash_report maps currency ->
+    Cash Report component -> amount, components named as in the Activity
+    Statement ("Starting Cash", "Trades (Sales)", ...); the base-currency
+    summary is not included.
+    """
+
     period_start: dt.date
     period_end: dt.date
     account: str = ""
-
-    def rows(self, section: str) -> list[SectionRow]:
-        return self.sections.get(section, [])
+    base_currency: str = ""
+    trades: list[Trade] = field(default_factory=list)
+    corporate_actions: list[CorporateAction] = field(default_factory=list)
+    cash_txns: list[CashTxn] = field(default_factory=list)
+    tax_items: list[TaxItem] = field(default_factory=list)
+    cash_report: dict[str, dict[str, Decimal]] = field(default_factory=dict)
 
 
 @dataclass

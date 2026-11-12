@@ -4,7 +4,9 @@ from decimal import Decimal
 import pytest
 
 from ibkr_to_xero import ReconciliationError, convert, parse_statement, reconcile
-from ibkr_to_xero.model import OutputRow, SectionRow, Statement
+from ibkr_to_xero.model import CashKind, OutputRow, Statement
+
+from . import builders
 
 
 def _pipeline(statement):
@@ -27,7 +29,7 @@ def test_synthetic_mtm_row(statement):
     usd = next(r for r in _pipeline(statement) if r.currency == "USD")
     mtm = [r for r in usd.rows if r.reference == "MTM"]
     assert len(mtm) == 1
-    assert mtm[0].amount == Decimal("2575")
+    assert mtm[0].amount == statement.cash_report["USD"]["Cash Settling MTM"]
     assert mtm[0].date == statement.period_end
     aud = next(r for r in _pipeline(statement) if r.currency == "AUD")
     assert not [r for r in aud.rows if r.reference == "MTM"]
@@ -41,46 +43,44 @@ def test_rounding_row_only_when_needed(statement):
     assert abs(rounding[0].amount) <= Decimal("0.005") * (len(results["USD"].rows) + 2)
 
 
-def _tampered_statement(statement_csv, tmp_path, old: str, new: str):
-    text = statement_csv.read_text(encoding="utf-8-sig")
-    assert old in text
-    tampered = tmp_path / "tampered.csv"
-    tampered.write_text(text.replace(old, new), encoding="utf-8")
-    return parse_statement(tampered)
+# Tampering edits for the real statement (tests never quote its contents).
+_BUMP_AUD_INTEREST = (builders.data_row("Interest", "AUD"), builders.add_to_cell(-1, "-0.01"))
+_CASH_REPORT_TOTAL = 4  # Cash Report,Data,{component},{currency},{Total},
+
+
+def _bump_ending_cash(currency):
+    return (builders.data_row("Cash Report", "Ending Cash", currency),
+            builders.add_to_cell(_CASH_REPORT_TOTAL, "10"))
 
 
 def test_tampered_transaction_amount_rejected(statement_csv, tmp_path):
     # Change one AUD interest amount: section sum no longer matches Cash Report.
-    statement = _tampered_statement(
-        statement_csv,
-        tmp_path,
-        "Interest,Data,AUD,2026-06-03,AUD Debit Interest for May-2026,-1108.33",
-        "Interest,Data,AUD,2026-06-03,AUD Debit Interest for May-2026,-1108.34",
-    )
+    tampered = builders.tampered_csv(statement_csv, tmp_path, _BUMP_AUD_INTEREST)
     with pytest.raises(ReconciliationError, match="AUD: section 'Interest'"):
-        _pipeline(statement)
+        _pipeline(parse_statement(tampered))
 
 
 def test_tampered_ending_cash_rejected(statement_csv, tmp_path):
-    statement = _tampered_statement(
-        statement_csv,
-        tmp_path,
-        "Cash Report,Data,Ending Cash,AUD,-352051.388215234,",
-        "Cash Report,Data,Ending Cash,AUD,-352061.388215234,",
-    )
+    tampered = builders.tampered_csv(statement_csv, tmp_path, _bump_ending_cash("AUD"))
     with pytest.raises(ReconciliationError, match="AUD: Cash Report does not add up"):
-        _pipeline(statement)
+        _pipeline(parse_statement(tampered))
 
 
 def test_unknown_nonzero_component_rejected(statement_csv, tmp_path):
-    statement = _tampered_statement(
-        statement_csv,
-        tmp_path,
-        "Cash Report,Data,Withdrawals,AUD,-60000,",
-        "Cash Report,Data,Mystery Component,AUD,-60000,",
-    )
+    def nonzero_aud_flow(cells):
+        return (
+            cells[:2] == ["Cash Report", "Data"]
+            and cells[3] == "AUD"
+            and cells[2] not in ("Starting Cash", "Ending Cash", "Ending Settled Cash")
+            and Decimal(cells[_CASH_REPORT_TOTAL]) != 0
+        )
+
+    def rename(cells):
+        return cells[:2] + ["Mystery Component"] + cells[3:]
+
+    tampered = builders.tampered_csv(statement_csv, tmp_path, (nonzero_aud_flow, rename))
     with pytest.raises(ReconciliationError, match="unmapped Cash Report component"):
-        _pipeline(statement)
+        _pipeline(parse_statement(tampered))
 
 
 # --- GST attribution (synthetic fixtures; reconcile() called directly) -----
@@ -90,18 +90,10 @@ _JUN30 = dt.date(2026, 6, 30)
 
 def _gst_statement(components: list[tuple[str, str]]) -> Statement:
     """A minimal one-currency Statement with just a Cash Report."""
-    rows = [
-        SectionRow(
-            "Cash Report",
-            {"Currency Summary": name, "Currency": "AUD", "Total": total},
-            line_no=i + 1,
-        )
-        for i, (name, total) in enumerate(components)
-    ]
     return Statement(
-        sections={"Cash Report": rows},
         period_start=dt.date(2026, 6, 1),
         period_end=_JUN30,
+        cash_report={"AUD": {name: Decimal(total) for name, total in components}},
     )
 
 
@@ -323,16 +315,9 @@ def test_zero_embedded_gst_leaves_descriptions_alone():
 
 def test_all_errors_reported_at_once(statement_csv, tmp_path):
     # Two independent problems in two currencies: both must be in one report.
-    text = statement_csv.read_text(encoding="utf-8-sig")
-    text = text.replace(
-        "Interest,Data,AUD,2026-06-03,AUD Debit Interest for May-2026,-1108.33",
-        "Interest,Data,AUD,2026-06-03,AUD Debit Interest for May-2026,-1108.34",
-    ).replace(
-        "Cash Report,Data,Ending Cash,USD,8253.729513866,",
-        "Cash Report,Data,Ending Cash,USD,8263.729513866,",
+    tampered = builders.tampered_csv(
+        statement_csv, tmp_path, _BUMP_AUD_INTEREST, _bump_ending_cash("USD")
     )
-    tampered = tmp_path / "tampered.csv"
-    tampered.write_text(text, encoding="utf-8")
     with pytest.raises(ReconciliationError) as excinfo:
         _pipeline(parse_statement(tampered))
     message = str(excinfo.value)
@@ -349,46 +334,30 @@ def _commission_adjustment_statement(with_section: bool) -> Statement:
     The Cash Report folds the adjustment into the Commissions component, so
     the adjustment row has to be checked inside the trades bucket.
     """
-    sections: dict[str, list[SectionRow]] = {
-        "Cash Report": [
-            SectionRow("Cash Report", {"Currency Summary": name, "Currency": "AUD",
-                                       "Total": total}, line_no=i + 1)
-            for i, (name, total) in enumerate(
-                [
-                    ("Starting Cash", "100"),
-                    ("Trades (Sales)", "500"),
-                    ("Commissions", "-1.31"),
-                    ("Ending Cash", "598.69"),
-                ]
-            )
+    adjustments = [
+        builders.cash_txn(
+            kind=CashKind.COMMISSION_ADJUSTMENT,
+            currency="AUD",
+            date=dt.date(2026, 6, 11),
+            description="Commission Computed After Trade Reported (XYZ)",
+            amount="-0.31",
+            line_no=20,
+        )
+    ]
+    return builders.statement(
+        cash_report={
+            "AUD": [
+                ("Starting Cash", "100"),
+                ("Trades (Sales)", "500"),
+                ("Commissions", "-1.31"),
+                ("Ending Cash", "598.69"),
+            ]
+        },
+        trades=[
+            builders.trade(currency="AUD", quantity="-100", price="5", proceeds="500",
+                           commission="-1", when=dt.datetime(2026, 6, 10, 10), line_no=10)
         ],
-        "Trades": [
-            SectionRow(
-                "Trades",
-                dict(zip(
-                    ["DataDiscriminator", "Asset Category", "Currency", "Symbol",
-                     "Date/Time", "Quantity", "T. Price", "Proceeds", "Comm/Fee", "Code"],
-                    ["Order", "Stocks", "AUD", "XYZ", "2026-06-10, 10:00:00",
-                     "-100", "5", "500", "-1", ""],
-                )),
-                line_no=10,
-            )
-        ],
-    }
-    if with_section:
-        sections["Commission Adjustments"] = [
-            SectionRow(
-                "Commission Adjustments",
-                {"Currency": "AUD", "Date": "2026-06-11",
-                 "Description": "Commission Computed After Trade Reported (XYZ)",
-                 "Amount": "-0.31", "Code": ""},
-                line_no=20,
-            )
-        ]
-    return Statement(
-        sections=sections,
-        period_start=dt.date(2026, 6, 1),
-        period_end=_JUN30,
+        cash_txns=adjustments if with_section else [],
     )
 
 
