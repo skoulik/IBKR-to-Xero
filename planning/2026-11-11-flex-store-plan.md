@@ -162,7 +162,9 @@ work can start.*
   `ibkr2xero export [--to DATE]` (D10; a range for a re-export), confirming imports,
   adding and selecting accounts (D7); the existing
   one-statement mode unchanged. GUI, a first sketch (Sergei): a tab per account, and a tab
-  for converting a hand-downloaded Activity Statement as today.
+  for converting a hand-downloaded Activity Statement as today; adding or editing an
+  account has fields for its Flex token and query ID (Sergei, 2026-11-12), written
+  straight to the credential store (D9) and never displayed again in full.
 - **D16 — A schema validator checks the user's Flex query** *(Sergei, 2026-11-12)*. Every
   fetch is checked before anything is stored: the required sections (table below) present,
   each with its required attributes on every row, the required levels of detail, XML
@@ -239,6 +241,7 @@ unchanged byte for byte against `examples/`.
    GUI convert a fetched XML file; the equivalence with the Activity Statement becomes a
    test. *Done 2026-11-12* (`flex.py`, `tests/test_flex.py`).
 3. **Flex client** — request, poll, back off, typed errors; the token a parameter.
+   *Done 2026-11-12* (`flex_client.py`, `tests/test_flex_client.py`; checked live).
 4. **Store** — `data.db`/`exports.db`, compression and encryption (D8), the key and token
    in `keyring` (D9), the folder layout (D14).
 5. **CLI** — fetch (incl. manual re-fetch), export, confirm, accounts (D15).

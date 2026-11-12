@@ -187,7 +187,7 @@ def _section_rows(statement: ET.Element, spec: SectionSpec) -> list[ET.Element]:
     section = statement.find(spec.tag)
     if section is None:
         raise StatementError(
-            f"Flex query: section {spec.title!r} is missing — add it to the query "
+            f"Flex query: section {spec.title!r} is missing; add it to the query "
             "with all its fields (Select All)"
         )
     if spec.rows is None:
@@ -202,14 +202,14 @@ def _section_rows(statement: ET.Element, spec: SectionSpec) -> list[ET.Element]:
         if present and not elements:
             raise StatementError(
                 f"Flex query: section {spec.title!r} has no {spec.level or spec.rows} "
-                f"rows — tick {spec.option!r} in its options"
+                f"rows; tick {spec.option!r} in its options"
             )
     for element in elements:
         missing = [f for f in spec.fields if f not in element.attrib]
         if missing:
             raise StatementError(
                 f"Flex query: section {spec.title!r} lacks field(s) "
-                f"{', '.join(missing)} — select them in the query (or Select All)"
+                f"{', '.join(missing)}; select them in the query (or Select All)"
             )
     return elements
 
@@ -244,7 +244,7 @@ def _datetime(row: ET.Element, field: str, where: str) -> dt.datetime:
         time = dt.datetime.strptime(match.group(2), "%H%M%S").time() if match.group(2) else dt.time()
     except ValueError:
         raise StatementError(
-            f"{where}: {field}={text!r} is not yyyyMMdd[;HHmmss] — {_DATE_FORMAT_HINT}"
+            f"{where}: {field}={text!r} is not yyyyMMdd[;HHmmss]; {_DATE_FORMAT_HINT}"
         ) from None
     return dt.datetime.combine(date.date(), time)
 
@@ -252,7 +252,7 @@ def _datetime(row: ET.Element, field: str, where: str) -> dt.datetime:
 def _date(row: ET.Element, field: str, where: str) -> dt.date:
     text = row.get(field, "")
     if not _DATE.match(text):
-        raise StatementError(f"{where}: {field}={text!r} is not yyyyMMdd — {_DATE_FORMAT_HINT}")
+        raise StatementError(f"{where}: {field}={text!r} is not yyyyMMdd; {_DATE_FORMAT_HINT}")
     return _datetime(row, field, where).date()
 
 

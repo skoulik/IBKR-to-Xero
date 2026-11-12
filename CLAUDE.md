@@ -56,6 +56,13 @@ adaptor (see TODO.md M4/M5).
   the query validator (missing section/field/option ⇒ reject naming what to tick) and the
   mapping. Rows are selected by report date; output rows keep their own dates. Details and
   the field mapping: `planning/2026-11-11-flex-store-plan.md` (D16–D19, I1, I2).
+- **flex_client.py** — `FlexClient(token).fetch(query_id, from, to)` runs a query on IBKR's
+  Flex Web Service: SendRequest, then GetStatement polled with back-off; transient IBKR
+  codes (in progress, rate limit, …) are retried until `max_wait`, the rest raise
+  `FlexTokenError`/`FlexQueryError`/`FlexError`, network trouble `FlexUnavailableError`.
+  At most 365 days per request. The token is a parameter and must never reach a message;
+  the opener and clock are injectable, so tests use canned responses. User-facing messages
+  stay ASCII: a Windows console on a legacy code page cannot print `—` or `→`.
 - **convert.py** — maps the model's records to output rows per currency, in a fixed order
   (trades, corporate actions, then cash transactions by kind). GST that the source links to
   a fee (Flex GST Details) is folded into that fee's row with `(incl. GST {amt})`.
