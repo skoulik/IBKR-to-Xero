@@ -197,18 +197,47 @@ def _convert_corporate_actions(statement: Statement, out: dict[str, list[OutputR
         )
 
 
+def fee_gst(statement: Statement) -> dict[str, Decimal]:
+    """GST linked to a fee in this statement: fee id -> GST amount (plan D19).
+
+    Such GST is folded into the fee's row. GST naming no record here is left
+    alone — it is the GST inside trade commissions, which reconcile.py
+    verifies — but GST naming a cash transaction that is not a fee would be
+    folded into the wrong bucket => reject.
+    """
+    txns = {txn.id: txn for txn in statement.cash_txns}
+    linked: dict[str, Decimal] = {}
+    for item in statement.tax_items:
+        if item.kind is not TaxKind.GST or item.taxed_id not in txns:
+            continue
+        txn = txns[item.taxed_id]
+        if txn.kind is not CashKind.FEE or txn.currency != item.currency:
+            raise StatementError(
+                f"{item.where}: GST on {txn.where} ({txn.kind.value}, {txn.currency}); "
+                f"only GST on fees in their own currency is supported"
+            )
+        linked[txn.id] = linked.get(txn.id, Decimal(0)) + item.amount
+    return linked
+
+
 def _convert_cash_txns(statement: Statement, out: dict[str, list[OutputRow]]) -> None:
+    gst = fee_gst(statement)
     for kind in CashKind:  # declaration order is the output order
         for txn in statement.cash_txns:
-            if txn.kind is kind:
-                out.setdefault(txn.currency, []).append(
-                    OutputRow(
-                        date=txn.date,
-                        amount=txn.amount,
-                        description=txn.description,
-                        source_section=kind.value,
-                    )
+            if txn.kind is not kind:
+                continue
+            amount, description = txn.amount, txn.description
+            if txn.id in gst:
+                amount += gst[txn.id]
+                description += f" (incl. GST {abs(gst[txn.id]).quantize(_CENT)})"
+            out.setdefault(txn.currency, []).append(
+                OutputRow(
+                    date=txn.date,
+                    amount=amount,
+                    description=description,
+                    source_section=kind.value,
                 )
+            )
 
 
 def convert(statement: Statement) -> dict[str, list[OutputRow]]:

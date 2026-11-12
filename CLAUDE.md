@@ -51,8 +51,14 @@ adaptor (see TODO.md M4/M5).
   current-header per section. First cell carries a UTF-8 BOM. `to_statement` then maps the
   in-scope sections onto the model, skipping aggregate rows and rejecting unknown trade
   discriminators and asset categories.
+- **flex.py** — the Flex report (XML) front end; `parse_statement` picks it by content.
+  `SECTIONS` is the one table of required sections, row levels and fields: it drives both
+  the query validator (missing section/field/option ⇒ reject naming what to tick) and the
+  mapping. Rows are selected by report date; output rows keep their own dates. Details and
+  the field mapping: `planning/2026-11-11-flex-store-plan.md` (D16–D19, I1, I2).
 - **convert.py** — maps the model's records to output rows per currency, in a fixed order
-  (trades, corporate actions, then cash transactions by kind).
+  (trades, corporate actions, then cash transactions by kind). GST that the source links to
+  a fee (Flex GST Details) is folded into that fee's row with `(incl. GST {amt})`.
 - **reconcile.py** — cross-checks bucket sums against `Cash Report` components
   (e.g. `Trades (Sales)+Trades (Purchase)+Commissions+GST == Σ trade cash`), enforces the
   Starting/Ending identity, and builds the synthetic rows (`MTM`, `GST`, `ROUNDING` — tagged

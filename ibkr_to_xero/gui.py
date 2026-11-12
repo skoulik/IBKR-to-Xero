@@ -285,7 +285,10 @@ class MainWindow(QWidget):
 
     def _on_open_clicked(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "Open IB Activity Statement", "", "CSV files (*.csv);;All files (*)"
+            self,
+            "Open IB Activity Statement",
+            "",
+            "IB statements (*.csv *.xml);;All files (*)",
         )
         if path:
             self._load_statement(Path(path))

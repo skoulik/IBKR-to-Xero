@@ -1,4 +1,4 @@
-"""Command-line interface: ibkr2xero <statement.csv> [-o OUTDIR]."""
+"""Command-line interface: ibkr2xero <statement.csv|report.xml> [-o OUTDIR]."""
 
 from __future__ import annotations
 
@@ -22,7 +22,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="ibkr2xero",
         description=(
-            "Convert an IB Activity Statement CSV into per-currency Xero import CSVs. "
+            "Convert an IB Activity Statement CSV (or an Activity Flex Query report "
+            "in XML) into per-currency Xero import CSVs. "
             "Refuses to write anything unless cash reconciles per currency."
         ),
     )
@@ -32,7 +33,9 @@ def main(argv: list[str] | None = None) -> int:
         version=f"ibkr2xero {_app_version()}",
         help="show the version and exit",
     )
-    parser.add_argument("statement", type=Path, help="IB Activity Statement CSV file")
+    parser.add_argument(
+        "statement", type=Path, help="IB Activity Statement CSV, or Flex report XML file"
+    )
     parser.add_argument(
         "-o",
         "--output-dir",

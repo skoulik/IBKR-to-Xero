@@ -176,7 +176,15 @@ def parse_sections(path: str | Path) -> RawStatement:
 
 
 def parse_statement(path: str | Path) -> Statement:
-    """Read an IB Activity Statement CSV file into the typed Statement model."""
+    """Read a statement file into the typed Statement model.
+
+    An Activity Statement CSV or, recognised by its content, a Flex report
+    (XML; flex.py).
+    """
+    from .flex import is_flex_report, parse_flex  # flex.py never imports this module
+
+    if is_flex_report(path):
+        return parse_flex(path)
     return to_statement(parse_sections(path))
 
 

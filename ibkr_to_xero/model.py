@@ -93,6 +93,7 @@ class CashKind(enum.Enum):
 
 class TaxKind(enum.Enum):
     STAMP_DUTY = "stamp_duty"  # per-trade transaction tax, already inside its commission
+    GST = "gst"  # GST charged as cash of its own, on the item named by taxed_id
 
 
 @dataclass(frozen=True)
@@ -142,13 +143,20 @@ class CashTxn(Record):
 
 @dataclass(frozen=True)
 class TaxItem(Record):
-    """A tax already inside some other row's amount, itemised for display and checks."""
+    """A tax itemised by the source.
+
+    Stamp duty is already inside its trade's commission (display and checks
+    only). GST is cash of its own: GST whose taxed_id names a fee in the same
+    statement is folded into that fee's row (plan D19); any other GST is the
+    part inside trade commissions, which reconcile.py verifies.
+    """
 
     when: dt.datetime
     currency: str
     kind: TaxKind
     symbol: str
     amount: Decimal
+    taxed_id: str | None = None
 
 
 @dataclass

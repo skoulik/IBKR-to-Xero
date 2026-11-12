@@ -218,11 +218,14 @@ work can start.*
   2026-11-12)*. Flex's GST Details (`SalesTaxes`) names the fee each GST charge was levied
   on (`taxableTransactionID`). Such GST is added to its fee row's amount, and the
   description gains `(incl. GST {amt})` — one line per fee, as trade commissions already
-  carry theirs, and what Xero's GST-inclusive coding expects. Every GST row must link to a
-  fee in the same report, or the period rejects. GST on trade commissions is already in
-  the trade's `taxes` and so in its commission (D18), with the `(incl. GST)` qualifier
-  as today. The Activity Statement path keeps its inference (subset search, period-end
-  `GST` row); bringing it in line where the attribution is unambiguous is open.
+  carry theirs, and what Xero's GST-inclusive coding expects. Reconciliation checks the
+  folded GST with the fees and leaves the rest of the GST component to the trades. GST on
+  trade commissions is already in the trade's `taxes` and so in its commission (D18);
+  its GST Details row names an ID absent from the report, so GST naming nothing is left
+  to the existing embedded-GST check (10% of Commissions, the `(incl. GST)` qualifier).
+  GST naming a cash transaction that is not a fee rejects. The Activity Statement path
+  keeps its inference (subset search, period-end `GST` row); bringing it in line where
+  the attribution is unambiguous is open.
 
 ## Build order
 
@@ -230,10 +233,11 @@ Each step ends with the full test suite passing and the Activity Statement path'
 unchanged byte for byte against `examples/`.
 
 1. **Typed model.** `convert` and `reconcile` move onto it; the CSV parser produces it.
-   No behaviour change.
+   No behaviour change. *Done 2026-11-12* (`511a365`).
 2. **Flex front end and validator** (D16, the I2 table as one declarative table driving
    both). `parse_statement` recognises a Flex report by content, so the existing CLI and
-   GUI convert a fetched XML file; the June/FY equivalence becomes a test.
+   GUI convert a fetched XML file; the equivalence with the Activity Statement becomes a
+   test. *Done 2026-11-12* (`flex.py`, `tests/test_flex.py`).
 3. **Flex client** — request, poll, back off, typed errors; the token a parameter.
 4. **Store** — `data.db`/`exports.db`, compression and encryption (D8), the key and token
    in `keyring` (D9), the folder layout (D14).
@@ -287,8 +291,9 @@ D17 says. These are also the sections the validator requires (D16):
 
 **GST Details** (`SalesTaxes`) itemises GST with a date, and each row names the taxed item
 by `taxableTransactionID` — fee rows directly, which D19 relies on; GST on a trade
-commission names an ID absent from the report but describes the trade (`AU Goods and
-Services Tax (Sell 1 XYZQA8)`), and is already inside that trade's `taxes`.
+commission names an ID found in no Activity Flex section (Commission Details, tried for it,
+links its rows by `tradeID` only and has no transaction ID) but describes the trade
+(`AU Goods and Services Tax (Sell 1 XYZQA8)`), and is already inside that trade's `taxes`.
 Statement of Funds and Option Exercises/Assignments/Expirations are in the query but
 unused.
 

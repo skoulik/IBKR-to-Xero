@@ -29,6 +29,7 @@ from __future__ import annotations
 from dataclasses import replace
 from decimal import ROUND_HALF_UP, Decimal
 
+from .convert import fee_gst
 from .model import (
     CurrencyResult,
     OutputRow,
@@ -198,6 +199,12 @@ def reconcile(
                 txfees_by_currency.get(item.currency, Decimal(0)) + item.amount
             )
 
+    fee_currency = {txn.id: txn.currency for txn in statement.cash_txns}
+    folded_gst: dict[str, Decimal] = {}
+    for fee_id, amount in fee_gst(statement).items():
+        currency = fee_currency[fee_id]
+        folded_gst[currency] = folded_gst.get(currency, Decimal(0)) + amount
+
     stray = sorted(set(converted) - set(report))
     if stray:
         errors.append(
@@ -254,6 +261,15 @@ def reconcile(
             bucket = _SECTION_BUCKET.get(row.source_section, row.source_section)
             actual_by_section[bucket] = actual_by_section.get(bucket, Decimal(0)) + row.amount
         gst = components.get("GST", Decimal(0))
+        # GST the source links to a fee is already folded into that fee's row
+        # (plan D19): that part of the GST component is checked with the fees,
+        # and only the rest is left for the trades and the checks below.
+        folded = folded_gst.get(currency, Decimal(0))
+        if folded:
+            expected_by_section["Fees"] = expected_by_section.get("Fees", Decimal(0)) + folded
+            expected_by_section["Trades"] = expected_by_section.get("Trades", Decimal(0)) - folded
+            gst -= folded
+            notes.append(f"GST {_round2(folded)} on fees folded into their rows")
         gst_gap = Decimal(0)
         for section in sorted(set(expected_by_section) | set(actual_by_section)):
             expected = expected_by_section.get(section, Decimal(0))
