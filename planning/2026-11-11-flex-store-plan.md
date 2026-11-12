@@ -4,7 +4,7 @@
 IBKR's Flex Web Service into a local store whose date ranges join up, and generate the
 Xero CSVs from the store instead of from a hand-downloaded Activity Statement. Same
 contract as today: reconcile or write nothing. Every design question is decided
-(D1–D17), and both facts the engine depended on are established (I1, I2): the engine
+(D1–D19), and both facts the engine depended on are established (I1, I2): the engine
 work can start.*
 
 ## Background
@@ -81,8 +81,9 @@ work can start.*
   ones dated before it for the user to check against Xero.
 - **D8 — Compressed, then encrypted at rest: the originals and the database.** Every
   stored file is compressed with `zlib` (standard library) and then encrypted — never the
-  other way round, since ciphertext does not compress. Flex XML compresses about 18×: a
-  year of Sergei's account is 10.7 MB as received and 0.58 MB compressed. Python's standard library
+  other way round, since ciphertext does not compress. Flex XML compresses about 18×
+  (a year of an active options account: about 10 MB as received, under 1 MB
+  compressed). Python's standard library
   has no symmetric encryption, so this adds a dependency (`cryptography`, AES-GCM); the
   converter itself stays standard-library only. The database cannot be encrypted by the
   standard `sqlite3` (SQLCipher would mean a native build to package and sign), so it is
@@ -129,8 +130,8 @@ work can start.*
   to it in 365-day chunks, and a currency appearing only in older data is asked about when
   found. Typed-in currency codes were declined: a missed one would mean a missing CSV with
   nothing to flag it. The Flex Cash Report lists every currency holding a balance, even
-  one with no activity in the period (CNH and JPY in Sergei's June 2026, which the Activity
-  Statement leaves out); such a currency is asked about too and produces no file.
+  one with no activity in the period, which the Activity Statement leaves out; such a
+  currency is asked about too and produces no file.
 - **D14 — Folder structure: everything encrypted, nothing readable by name.** Someone
   holding a copy of the folder learns neither which accounts it holds nor what periods —
   only file sizes and times.
@@ -174,41 +175,102 @@ work can start.*
   trace, but its cash is still in the Cash Report, so reconciliation rejects the period.
 - **D17 — Descriptions are Flex's own wording** *(Sergei, 2026-11-12)*. Pass-through rows (cash
   transactions, corporate actions) differ from the Activity Statement's: upper case and
-  abbreviated (`USD DEBIT INT FOR MAY-2026` for `USD Debit Interest for May-2026`; ADR fees
+  abbreviated (`USD DEBIT INT FOR JAN-2026` for `USD Debit Interest for Jan-2026`; ADR fees
   gain ` - FEE`). No Xero rule matches on them, and reproducing the statement's wording
   would be guesswork. Trade descriptions follow the existing grammar and come out
-  identical, except a bond's symbol, which Flex gives without the statement's coupon
-  suffix (`TII 2 3/8 02/15/55`, not `… 0.0%`).
+  identical, except a bond's symbol, which Flex gives without the statement's trailing
+  rate (`T 4 1/2 05/15/38`, not `T 4 1/2 05/15/38 0.0%`).
+- **D18 — One typed model for both front ends, persisted as the database** *(Sergei,
+  2026-11-12)*. The conversion logic is format-independent — trade cash, forex legs and fee,
+  futures, event codes, the description grammar, the stamp-duty join, the Cash Report
+  checks, MTM and rounding all carried over to Flex unchanged — so `convert` and
+  `reconcile` run on a typed model rather than on Activity-Statement-shaped rows, and the
+  CSV parser and the Flex parser each produce it. The CSV path builds it in memory as
+  today (line numbers as IDs, no report dates); the store persists it. GST is where the
+  sources differ: the CSV path keeps inferring it, Flex itemises it.
+  `data.db` (derived, rebuildable — D6), amounts as decimal **text** since SQLite has no
+  exact decimal type:
+
+  ```
+  meta              key, value      -- parser version (rebuild trigger), account, base currency
+  period            from_date, to_date, original, generated_at, superseded_by
+  cash_report       period, currency, component, amount     -- our component names
+  trade             id, period, report_date, datetime, currency, asset_class, symbol,
+                    quantity, price, proceeds, commission, commission_currency, taxes, codes
+  cash_txn          id, period, report_date, date, currency, kind, description, amount
+  corporate_action  id, period, report_date, datetime, currency, description, proceeds
+  tax_item          id, period, date, currency, kind (gst|stamp_duty), amount, taxed_id
+  line              key, period, currency, date, amount, description, reference, source_id
+  ```
+
+  `line` holds the Xero rows `convert` and `reconcile` produce per period, synthetic ones
+  included. Its `key` is stable across rebuilds — IBKR's transaction ID, plus a leg for
+  forex (`fx-base`, `fx-quote`, `fx-fee`); period and currency for synthetic rows
+  (`MTM:20260601-20260630:USD`) — because it is what `exports.db` (not rebuildable) records:
+
+  ```
+  export            id, created_at, to_date, folder
+  export_file       id, export, currency, filename, status (pending|confirmed), confirmed_at
+  exported_line     line_key, export_file
+  ```
+
+- **D19 — GST on fees folds into the fee row when the source links it** *(Sergei,
+  2026-11-12)*. Flex's GST Details (`SalesTaxes`) names the fee each GST charge was levied
+  on (`taxableTransactionID`). Such GST is added to its fee row's amount, and the
+  description gains `(incl. GST {amt})` — one line per fee, as trade commissions already
+  carry theirs, and what Xero's GST-inclusive coding expects. Every GST row must link to a
+  fee in the same report, or the period rejects. GST on trade commissions is already in
+  the trade's `taxes` and so in its commission (D18), with the `(incl. GST)` qualifier
+  as today. The Activity Statement path keeps its inference (subset search, period-end
+  `GST` row); bringing it in line where the attribution is unambiguous is open.
+
+## Build order
+
+Each step ends with the full test suite passing and the Activity Statement path's output
+unchanged byte for byte against `examples/`.
+
+1. **Typed model.** `convert` and `reconcile` move onto it; the CSV parser produces it.
+   No behaviour change.
+2. **Flex front end and validator** (D16, the I2 table as one declarative table driving
+   both). `parse_statement` recognises a Flex report by content, so the existing CLI and
+   GUI convert a fetched XML file; the June/FY equivalence becomes a test.
+3. **Flex client** — request, poll, back off, typed errors; the token a parameter.
+4. **Store** — `data.db`/`exports.db`, compression and encryption (D8), the key and token
+   in `keyring` (D9), the folder layout (D14).
+5. **CLI** — fetch (incl. manual re-fetch), export, confirm, accounts (D15).
+6. **GUI**, then release (D15).
 
 ## Established from real Flex exports (2026-11-12)
 
 Sergei's Activity Flex Query `ibkr2xero` (XML), built by IBKR's AI configurator and
 completed by hand (Select All in each section; Account Information and Transfers added).
-Reports for June 2026 and FY 2025-26 were fetched, converted through a prototype adaptor
-into the converter's statement model, and compared with the Activity Statements for the
-same periods. The reports are real account data, kept in the gitignored `examples/flex/`.
+Reports for the two periods in `examples/` (a month and a financial year) were fetched,
+converted through a prototype adaptor into the converter's statement model, and compared
+with the Activity Statements for the same periods. The reports are real account data,
+kept in the gitignored `examples/flex/`; nothing below quotes them.
 Fetching a month took about 5 s; a year about 8 min (one attempt gave up after 10).
 Two clients polling one token hit the rate limit (error 1018) and must back off.
 
 ### I1 — Backdated entries
 
 - **`fd`/`td` select by report date.** Every row of a fetch has its `reportDate` inside
-  the window, while 33 withholding-tax rows in FY 2025-26 carry own dates from Feb–Jun
-  2025. Two of them (dated 2025-02-07, reported 2026-02-04) are in a fetch of 1–10 Feb 2026
-  and not in one of 1–10 Feb 2025, which holds the original charges they correct.
+  the window, while some withholding-tax rows in the financial year carry own dates
+  months before it. A row dated in early February of one year and reported in early
+  February of the next is in a ten-day fetch around its report date, not in one around its
+  own date — which holds the original charge it corrects.
 - **What is late:** withholding-tax refunds and corrections, reported 1–12 months after
   their own date, most at the turn of the year. Every other kind of row is reported within
   −1…+3 days of its own date.
-- **Cash joins across a boundary:** May 2026 Ending Cash equals June 2026 Starting Cash
-  in every currency, and the year reconciles with the late rows inside it.
-- **The Activity Statement does the same:** the FY statement downloaded in July holds the
-  same late rows and still matches the November fetch row for row.
+- **Cash joins across a boundary:** one month's Ending Cash equals the next month's
+  Starting Cash in every currency, and the year reconciles with the late rows inside it.
+- **The Activity Statement does the same:** the year's statement, downloaded four months
+  before the fetch, holds the same late rows and matches it row for row.
 
 ### I2 — Mapping onto the converter
 
-**Proven by conversion:** June 2026 and FY 2025-26 (AUD, GBP, HKD, USD; about 2,650 rows
-covering stocks, options, futures, bonds, forex legs and fees, HK stamp duty, corporate
-actions, GST verification and attribution, MTM and rounding) give the same rows, dates,
+**Proven by conversion:** both periods (several currencies; thousands of rows covering
+stocks, options, futures, bonds, forex legs and fees, HK stamp duty, corporate actions, GST
+verification and attribution, MTM and rounding) give the same rows, dates,
 amounts, Reference tags and report notes from both sources; descriptions differ only as
 D17 says. These are also the sections the validator requires (D16):
 
@@ -217,18 +279,18 @@ D17 says. These are also the sections the validator requires (D16):
 | Period, account | `FlexStatement` | `fromDate`, `toDate`, `accountId` |
 | Base currency | `AccountInformation` — attributes on the element, no rows | `currency` |
 | Cash Report | `CashReport` › `CashReportCurrency`, one per currency (`levelOfDetail="Currency"`); no base summary | one attribute per component: `startingCash`, `endingCash`, `endingSettledCash`, `commissions`, `salesTax` (GST), `transactionTax` (Transaction Fees), `netTradesSales`, `netTradesPurchases`, `deposits`, `withdrawals`, `accountTransfers`, `dividends`, `paymentInLieu`, `withholdingTax`, `brokerInterest`, `bondInterest`, `otherFees`, `cashSettlingMtm`, `fxTranslationGainLoss`; `slb*` are the SYEP collateral lines. Not components: `depositWithdrawals` (deposits + withdrawals), `…Com`/`…Sec` (per-segment splits), `…MTD`/`…YTD` (running totals, on long periods). Any other nonzero attribute is an unknown component ⇒ reject. |
-| Trades | `Trades` › `Order` rows (`Trade` rows are its executions) | `assetCategory` STK/OPT/FUT/BOND/CASH; Symbol = `symbol`, but `description` for options (their `symbol` is the exchange code, e.g. `CSLNN8`); `dateTime`, `quantity`, `tradePrice`, `proceeds`; Comm/Fee = `ibCommission` + `taxes` (GST on the commission, stamp duty); Code = `notes`; a forex commission is `ibCommission` in `ibCommissionCurrency` |
+| Trades | `Trades` › `Order` rows (`Trade` rows are its executions) | `assetCategory` STK/OPT/FUT/BOND/CASH; Symbol = `symbol`, but `description` for options (their `symbol` is the exchange's option code, e.g. `XYZQA8`); `dateTime`, `quantity`, `tradePrice`, `proceeds`; Comm/Fee = `ibCommission` + `taxes` (GST on the commission, stamp duty); Code = `notes`; a forex commission is `ibCommission` in `ibCommissionCurrency` |
 | Transaction Fees | `TransactionTaxes`, `SUMMARY` rows — one per taxed trade; the statement's zero rows do not appear | `currency`, `symbol`, `date` (a date-time), `taxAmount` |
 | Corporate Actions | `CorporateActions` › `DETAIL` | `currency`, `dateTime`, `proceeds`, `actionDescription` |
 | Fees, Dividends, Withholding Tax, Interest, Commission Adjustments, Deposits & Withdrawals | `CashTransactions` › `DETAIL`, routed by `type`: Other Fees; Dividends, Payment In Lieu Of Dividends; Withholding Tax; Broker/Bond Interest Paid/Received; Commission Adjustments (none seen yet); Deposits/Withdrawals | `currency`, `dateTime` (date part; `settleDate` for deposits and withdrawals), `description`, `amount`. An unknown `type` ⇒ reject. |
 | Internal transfers (Deposits & Withdrawals) | `Transfers` › `TRANSFER` rows with `assetCategory="CASH"`; position transfers carry no cash | `currency`, `date` (its `settleDate` is a day earlier than the statement's), `cashTransfer`. The description is `--`; rebuilt as `Internal Transfer In From Account {account}` (`Out To` unverified). |
 
-**Not used yet:** `SalesTaxes` (GST Details) itemises GST with a date, and each row names
-the taxed item by `taxableTransactionID` — fee rows directly; GST on a trade commission
-names an ID absent from the report but describes the trade (`AU Goods and Services Tax
-(Sell 1 CSLZA8)`). It could replace reconcile.py's subset-sum attribution of GST on fees
-(TODO). Statement of Funds and Option Exercises/Assignments/Expirations are in the query
-but unused.
+**GST Details** (`SalesTaxes`) itemises GST with a date, and each row names the taxed item
+by `taxableTransactionID` — fee rows directly, which D19 relies on; GST on a trade
+commission names an ID absent from the report but describes the trade (`AU Goods and
+Services Tax (Sell 1 XYZQA8)`), and is already inside that trade's `taxes`.
+Statement of Funds and Option Exercises/Assignments/Expirations are in the query but
+unused.
 
 ## Out of scope
 
