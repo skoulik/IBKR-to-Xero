@@ -88,7 +88,7 @@ tool, or both.
 | Platform | File |
 |---|---|
 | Windows 10/11 (64-bit) | `IBKR-to-Xero-Setup-<version>-windows-x64.exe` |
-| macOS, Apple silicon | `IBKR-to-Xero-<version>-macos-arm64.pkg` |
+| macOS 14.4 or later, Apple silicon | `IBKR-to-Xero-<version>-macos-arm64.pkg` |
 
 Intel Macs are not supported by the installer; install from source there instead (below).
 

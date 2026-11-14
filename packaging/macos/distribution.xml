@@ -4,6 +4,11 @@
   <!-- Apple silicon only: on an Intel Mac, Installer refuses up front instead
        of installing an app that cannot run there. -->
   <options customize="always" require-scripts="false" hostArchitectures="arm64"/>
+  <!-- macOS 14.4 is Qt 6.12's floor: below it Qt crashes at the first contended
+       mutex, so Installer refuses there with a message instead. -->
+  <allowed-os-versions>
+    <os-version min="14.4"/>
+  </allowed-os-versions>
   <!-- Both components install into system locations (/Applications and
        /usr/local/bin), so only the system domain makes sense. -->
   <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>

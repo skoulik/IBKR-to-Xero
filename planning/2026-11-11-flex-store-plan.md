@@ -319,11 +319,13 @@ work can start.*
   git checkout a dev build (`2.0.0.dev<commit time>`), and its own release forces the
   version this way — it must match the `release_version` its `pyproject.toml` declares.
   DuckDB then reports that version, which is also written into database file headers.
-  **macOS deployment target 15.0, pinned** *(Sergei, 2026-11-14)* — for DuckDB and, through
-  a custom vcpkg triplet, for OpenSSL and curl; left to default it follows the CI runner's
-  macOS, which would silently raise the app's minimum. Qt 6.12 needs macOS 14.4, but
-  PySide6 6.12.0's own binding modules are built for macOS 26 (checked in the wheel
-  v0.2.0 shipped); the app is proven only on 15, where v0.2.0's smoke test runs it.
+  **macOS deployment target 14.4, pinned** *(Sergei, 2026-11-14)* — Qt 6.12's own floor
+  (it calls `os_sync_wait_on_address`, macOS 14.4+, unconditionally), so DuckDB, and
+  through a custom vcpkg triplet OpenSSL and curl, never raise the app's minimum above
+  Qt's; left to default it follows the CI runner's macOS. PySide6 6.12.0's own binding
+  modules are built for macOS 26 (checked in the wheel v0.2.0 shipped), which is not
+  enforced at load; the app is proven only on 15, where v0.2.0's smoke test runs it, so
+  14.4–14.x is untested.
   **Proven on CI, 2026-11-14** (a throwaway branch, since deleted): on macOS and Windows
   the module reports `httpfs` `STATICALLY_LINKED`, depends only on the OS's own libraries
   (Windows: no Visual C++ runtime to ship), and writes and reads encrypted databases
