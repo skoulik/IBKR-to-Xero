@@ -4,7 +4,7 @@
 |---|---|
 | **Document** | How the converter is built: its modules, the data between them, the rules they enforce, and how it ships |
 | **Status** | Current design, maintained with the code: a change to either changes the other in the same commit |
-| **Items** | [AD-001](#ad-001) to [AD-077](#ad-077). The next takes **AD-078** |
+| **Items** | [AD-001](#ad-001) to [AD-079](#ad-079). The next takes **AD-080** |
 
 ## Contents
 
@@ -223,3 +223,5 @@ Every module imports `model.py` ([AD-013](#ad-013)); those imports are not drawn
 | <a id="ad-073"></a>**AD-073** | macOS signing material | The signing identities are chosen by SHA-1 in a temporary keychain built from the repository's secrets, deleted when the job ends; notarisation uses an App Store Connect API key from the secrets | [D50](planning/2026-11-14-earlier-decisions.md#d50) |
 | <a id="ad-074"></a>**AD-074** | Version | `pyproject.toml` is the one source of the version: the CLI's `--version`, the window's title, the installers' names and the Windows file properties all read it | [D53](planning/2026-11-14-earlier-decisions.md#d53) |
 | <a id="ad-075"></a>**AD-075** | Test data | Real statements live only in the gitignored `examples/`; tests that need them skip when it is absent, so CI runs on synthetic data alone | [D54](planning/2026-11-14-earlier-decisions.md#d54) |
+| <a id="ad-078"></a>**AD-078** | The DuckDB wheel workflow | Run by hand with one duckdb-python tag. For macOS on Apple silicon and Windows x64: vcpkg pinned to a commit builds static OpenSSL and curl — on macOS through a triplet targeting macOS 14.4 — kept in vcpkg's binary cache; duckdb-python compiles through `ccache` with `httpfs` added to `BUILD_EXTENSIONS`, its version forced to the tag (`OVERRIDE_GIT_DESCRIBE`) and, on macOS, its minimum macOS 14.4. Each wheel passes [AD-079](#ad-079) in plain Python and frozen, the macOS module must record macOS 14.4 as its minimum, and it gets a notices file: duckdb-python, DuckDB, duckdb-httpfs and every vcpkg port inside. Published on the pre-release `duckdb-<version>-httpfs` with a `SHA256SUMS` | [D22](planning/2026-11-11-flex-store-plan.md#d22), [D55](planning/2026-11-14-earlier-decisions.md#d55) |
+| <a id="ad-079"></a>**AD-079** | The wheel check | `packaging/duckdb/check_wheel.py`: the version is the tag's exactly; `httpfs` is statically linked; with extension downloads and autoloading off and an empty extension directory, an encrypted database is written with no `LOAD`, its contents unreadable in the file, read back exactly — a `DECIMAL(38,11)` amount included — and refused with a wrong key | [D18](planning/2026-11-11-flex-store-plan.md#d18), [D22](planning/2026-11-11-flex-store-plan.md#d22) |

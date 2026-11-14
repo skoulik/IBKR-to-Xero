@@ -1,0 +1,209 @@
+name: DuckDB wheels
+
+# Implements: AD-078
+# Builds duckdb-python with httpfs - and static OpenSSL and curl from vcpkg - linked
+# into its module (D22), so the store writes encrypted databases with nothing loaded
+# or downloaded at run time. Run by hand, once per DuckDB version: it checks each
+# wheel, then publishes the wheels on the pre-release duckdb-<version>-httpfs, where
+# the release workflow and source installs take them from.
+on:
+  push:  # TEMPORARY - test runs from the branch; removed before it merges
+    branches: [duckdb-wheels]
+  workflow_dispatch:
+    inputs:
+      duckdb:
+        description: duckdb-python tag to build
+        required: true
+        default: v2.0.0
+      publish:
+        description: Publish the wheels on the pre-release
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  # vcpkg pinned so a rebuild is reproducible: release 2026.10.16.
+  VCPKG_COMMIT: 5d4a3dc90c0b3773f3bac81bf41297b54328f471
+  BUILD_EXTENSIONS: core_functions;parquet;icu;json;httpfs
+  CMAKE_BUILD_PARALLEL_LEVEL: '4'
+
+jobs:
+  build:
+    name: Wheel (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macos-arm64, os: macos-15, triplet: arm64-osx-14 }
+          # Static libraries and the static CRT, as duckdb-python builds with /MT.
+          - { name: windows-x64, os: windows-2022, triplet: x64-windows-static }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: bash
+    env:
+      # The app's minimum (D55); DuckDB and, through the triplet, OpenSSL and curl.
+      MACOSX_DEPLOYMENT_TARGET: '14.4'
+      # duckdb-python makes every git checkout a dev build; this forces the release
+      # version, which must match its pyproject's release_version.
+      OVERRIDE_GIT_DESCRIBE: ${{ inputs.duckdb || 'v2.0.0' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      # ccache needs Ninja on Windows: the Visual Studio generator ignores the
+      # compiler launcher. Ninja in turn needs the MSVC environment activated.
+      - uses: ilammy/msvc-dev-cmd@v1.13.0
+        if: runner.os == 'Windows'
+
+      - name: Paths
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            T=$(cygpath -m "$RUNNER_TEMP")
+            echo "CMAKE_GENERATOR=Ninja" >> "$GITHUB_ENV"
+          else
+            T="$RUNNER_TEMP"
+          fi
+          mkdir -p "$T/vcpkg-cache" "$T/wheels"
+          {
+            echo "WORK=$T"
+            echo "VCPKG_ROOT=$T/vcpkg"
+            echo "VCPKG_CACHE=$T/vcpkg-cache"
+            echo "VCPKG_BINARY_SOURCES=clear;files,$T/vcpkg-cache,readwrite"
+            echo "WHEELS=$T/wheels"
+            echo "VERSION=${OVERRIDE_GIT_DESCRIBE#v}"
+          } >> "$GITHUB_ENV"
+
+      - name: vcpkg, pinned
+        run: |
+          git clone --quiet https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+          git -C "$VCPKG_ROOT" checkout --quiet "$VCPKG_COMMIT"
+          if [ "$RUNNER_OS" = Windows ]; then
+            cmd //c "$(cygpath -w "$VCPKG_ROOT")\\bootstrap-vcpkg.bat" -disableMetrics
+          else
+            "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+
+      # vcpkg's binary cache: OpenSSL and curl are rebuilt only when the pinned vcpkg
+      # or the triplet changes - or after seven days unused, when GitHub drops it.
+      - uses: actions/cache@v6
+        with:
+          path: ${{ env.VCPKG_CACHE }}
+          key: vcpkg-${{ matrix.triplet }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('packaging/duckdb/triplets/**') }}
+
+      - name: Static OpenSSL and curl
+        run: |
+          "$VCPKG_ROOT/vcpkg" install openssl "curl[ssl]" --triplet "${{ matrix.triplet }}" \
+            --overlay-triplets="$GITHUB_WORKSPACE/packaging/duckdb/triplets"
+
+      # duckdb-python compiles through ccache whenever it is on the path.
+      - uses: hendrikmuhs/ccache-action@v1.2.24
+        with:
+          key: duckdb-${{ matrix.name }}
+          max-size: 2G
+
+      - name: duckdb-python and DuckDB at the tag
+        run: |
+          git clone --quiet --depth 1 --branch "$OVERRIDE_GIT_DESCRIBE" \
+            https://github.com/duckdb/duckdb-python "$WORK/dp"
+          cd "$WORK/dp"
+          git submodule update --init --recursive --depth 1 || git submodule update --init --recursive
+          git -C external/duckdb log --oneline -1
+
+      - name: Build the wheel with httpfs linked in
+        run: |
+          cd "$WORK/dp"
+          python -m pip install --upgrade pip
+          python -m pip wheel . --no-deps -w "$WHEELS" \
+            -Ccmake.define.BUILD_EXTENSIONS="$BUILD_EXTENSIONS" \
+            -Ccmake.define.CMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -Ccmake.define.VCPKG_TARGET_TRIPLET="${{ matrix.triplet }}" \
+            -Ccmake.define.VCPKG_OVERLAY_TRIPLETS="$GITHUB_WORKSPACE/packaging/duckdb/triplets" \
+            -Ccmake.define.VCPKG_MANIFEST_MODE=OFF
+          ccache --show-stats || true
+          ls -l "$WHEELS"
+
+      - name: Check it, in plain Python
+        run: |
+          python -m pip install --no-deps "$WHEELS"/duckdb-*.whl
+          MOD=$(python packaging/duckdb/check_wheel.py --where)
+          ls -l "$MOD"
+          if [ "$RUNNER_OS" = macOS ]; then
+            echo "--- linked libraries (only the system's):"; otool -L "$MOD"
+            MINOS=$(otool -l "$MOD" | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')
+            echo "minimum macOS: $MINOS"; [ "$MINOS" = "$MACOSX_DEPLOYMENT_TARGET" ]
+          else
+            echo "--- DLL dependencies (only the system's and python3):"
+            dumpbin //dependents "$MOD" | grep -i "\.dll"
+          fi
+          python packaging/duckdb/check_wheel.py "$OVERRIDE_GIT_DESCRIBE"
+
+      - name: Check it, frozen
+        run: |
+          python -m pip install pyinstaller
+          python -m PyInstaller --noconfirm --onedir --name check_wheel \
+            --distpath "$WORK/frozen" --workpath "$WORK/pyi" --specpath "$WORK/pyi" \
+            packaging/duckdb/check_wheel.py
+          "$WORK/frozen/check_wheel/check_wheel" "$OVERRIDE_GIT_DESCRIBE"
+
+      - name: Notices
+        run: |
+          HTTPFS=$(sed -n 's/.*GIT_TAG *\([0-9a-f]*\).*/\1/p' \
+            "$WORK/dp/external/duckdb/.github/config/extensions/httpfs.cmake")
+          NOTICES="$WHEELS/duckdb-$VERSION-httpfs-${{ matrix.name }}-NOTICES.txt"
+          {
+            echo "Third-party notices for duckdb $VERSION built with httpfs (${{ matrix.name }})."
+            echo "Built by IBKR to Xero's duckdb-wheels workflow; not a DuckDB release."
+            echo
+            echo "=== duckdb-python $VERSION (MIT)"; cat "$WORK/dp/LICENSE"; echo
+            echo "=== DuckDB (MIT)"; cat "$WORK/dp/external/duckdb/LICENSE"; echo
+            echo "=== duckdb-httpfs $HTTPFS (MIT)"
+            curl -fsSL "https://raw.githubusercontent.com/duckdb/duckdb-httpfs/$HTTPFS/LICENSE"; echo
+            for copyright in "$VCPKG_ROOT/installed/${{ matrix.triplet }}/share"/*/copyright; do
+              port=$(basename "$(dirname "$copyright")")
+              case "$port" in vcpkg-*) continue ;; esac
+              echo "=== $port (vcpkg port, linked statically)"; cat "$copyright"; echo
+            done
+          } > "$NOTICES"
+          grep "^===" "$NOTICES"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: duckdb-${{ matrix.name }}
+          path: ${{ env.WHEELS }}/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish on the pre-release
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: duckdb-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create or update duckdb-<version>-httpfs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.duckdb }}
+        run: |
+          VERSION="${TAG#v}"
+          RELEASE="duckdb-$VERSION-httpfs"
+          (cd dist && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
+          if ! gh release view "$RELEASE" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$RELEASE" -R "$GITHUB_REPOSITORY" --prerelease \
+              --target "$GITHUB_SHA" --title "DuckDB $VERSION with httpfs" \
+              --notes "duckdb-python $VERSION built with the httpfs extension, and static OpenSSL and curl, linked into its module, for IBKR to Xero's store (D22 of the Flex plan). Not a DuckDB release. Built by .github/workflows/duckdb-wheels.yml at $GITHUB_SHA; the notices list the licences of everything inside."
+          fi
+          gh release upload "$RELEASE" dist/* -R "$GITHUB_REPOSITORY" --clobber
