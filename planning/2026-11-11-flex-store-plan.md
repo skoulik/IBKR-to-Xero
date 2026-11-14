@@ -314,7 +314,16 @@ work can start.*
   cache unused for 7 days, so this speeds reruns within a week — a build months later
   compiles from scratch (measured: OpenSSL + curl 3 min on macOS and 7 on Windows, DuckDB
   13 min on macOS and over 35 on Windows). Cost: the build to maintain, and a DuckDB
-  version pinned by us. **Proof pending:** the build is being tried on macOS (signed, notarised) and
+  version pinned by us. **The workflow builds one DuckDB tag, given as its input**, and
+  sets `OVERRIDE_GIT_DESCRIBE` to it *(Sergei, 2026-11-14)*: duckdb-python makes every
+  git checkout a dev build (`2.0.0.dev<commit time>`), and its own release forces the
+  version this way — it must match the `release_version` its `pyproject.toml` declares.
+  DuckDB then reports that version, which is also written into database file headers.
+  **macOS deployment target 15.0, pinned** *(Sergei, 2026-11-14)* — for DuckDB and, through
+  a custom vcpkg triplet, for OpenSSL and curl; left to default it follows the CI runner's
+  macOS, which would silently raise the app's minimum. Qt 6.12 needs macOS 14.4, but
+  PySide6 6.12.0's own binding modules are built for macOS 26 (checked in the wheel
+  v0.2.0 shipped); the app is proven only on 15, where v0.2.0's smoke test runs it. **Proof pending:** the build is being tried on macOS (signed, notarised) and
   Windows; if it fails, this decision reopens.
 
 ## Build order
