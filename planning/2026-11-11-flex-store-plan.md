@@ -1,10 +1,10 @@
 # Flex Web Service and a local store — plan
 
-*Agreed 2026-11-11, revised 2026-11-12 after real Flex exports. Fetch account data from
+*Agreed 2026-11-11, revised 2026-11-12 after real Flex exports and 2026-11-14 (D9). Fetch account data from
 IBKR's Flex Web Service into a local store whose date ranges join up, and generate the
 Xero CSVs from the store instead of from a hand-downloaded Activity Statement. Same
 contract as today: reconcile or write nothing. Every design question is decided
-(D1–D19), and both facts the engine depended on are established (I1, I2): the engine
+(D1–D22), and both facts the engine depended on are established (I1, I2): the engine
 work can start.*
 
 ## Background
@@ -57,20 +57,22 @@ work can start.*
   confirmed re-fetch is kept beside the originals it overlaps (D6) and, being newer,
   supersedes them for its range whenever the database is built. A changed transaction
   already exported is listed for the user to correct in Xero by hand.
-- **D6 — Originals as the record, a database for speed.** Every fetched report is kept
+- **D6 — Originals as the record, a database for queries.** Every fetched report is kept
   exactly as received, one immutable file per fetch, self-describing (a Flex report carries
-  its own date range and generation time; D14). Parsed transactions live in an SQLite
-  database (`sqlite3`, standard library — no new dependency) for fast queries. **The
+  its own date range and generation time; D14). Parsed transactions live in a DuckDB
+  database (D22), for the reports, search,
+  filtering and complex queries to come (Sergei, 2026-11-14); speed alone would not need
+  it, since decrypting and parsing a year of an active account takes about 0.4 s. **The
   database is derived and disposable:** it records the version of the parsing it was built
   with, and when a release changes that version — a fixed bug, a newly mapped field — the
   tool rebuilds it from the originals.
   *One exception:* the record of what has been exported (D10) cannot be rebuilt from the
   originals, so it lives apart from the derived tables and survives a rebuild — losing it
   would let the next export re-send transactions already in Xero.
-- **D7 — A hidden per-user folder holding several accounts.** The store lives in the
+- **D7 — A hidden per-user folder holding several ledgers.** The store lives in the
   platform's per-user application-data location, not a folder the user picks. It holds
-  any number of IB accounts, each kept separately; the CLI and the GUI select which one a
-  run works on. The folder's structure is D14.
+  any number of ledgers (D20), each kept separately; the CLI and the GUI select which one
+  a run works on. The folder's structure is D14.
   *Consequence:* Windows File History does not back up application data by default, so
   the originals there are not a backup in themselves. They can be re-fetched from IBKR,
   year by year. The export record (D6) can be restored approximately from Xero (Sergei):
@@ -79,33 +81,44 @@ work can start.*
   (D5) — a backdated transaction reported after the mark but dated before it is ambiguous.
   A restore treats transactions reported after the mark as not imported, and lists the
   ones dated before it for the user to check against Xero.
-- **D8 — Compressed, then encrypted at rest: the originals and the database.** Every
-  stored file is compressed with `zlib` (standard library) and then encrypted — never the
-  other way round, since ciphertext does not compress. Flex XML compresses about 18×
-  (a year of an active options account: about 10 MB as received, under 1 MB
-  compressed). Python's standard library
-  has no symmetric encryption, so this adds a dependency (`cryptography`, AES-GCM); the
-  converter itself stays standard-library only. The database cannot be encrypted by the
-  standard `sqlite3` (SQLCipher would mean a native build to package and sign), so it is
-  held in memory while the tool runs and stored as a compressed, encrypted image:
-  decrypted and loaded with `Connection.deserialize` on start, written back with
-  `serialize` on save (both Python 3.11+, already the minimum). At a few MB per account
-  that costs nothing noticeable.
-- **D9 — The key lives in the OS credential store, with no recovery key.** A random key
-  per store in Windows Credential Manager or the macOS Keychain, through the `keyring`
-  package; nothing to type. It protects copies of the folder and a disk read without the
-  user's login, not code running as the user — which could as well take the Flex token
-  from the same store and fetch the data from IBKR. The Flex token and query ID of each
-  account are kept there too, entered once; an expired token gives a plain message saying
-  how to make a new one, and users are told the token can only fetch reports. Known ways
-  to lose the key: a password *reset* without the old password (both platforms), a new
-  Windows PC (Credential Manager does not migrate; Migration Assistant and Time Machine do
-  carry the Mac keychain). Recovery
-  deliberately reuses machinery the tool needs anyway: re-fetch the history from IBKR and
-  restore the export record from Xero (D7). A recovery key was considered and declined —
-  one more secret for the user to keep, for a loss that is rebuildable.
+- **D8 — Encrypted at rest: the originals, the databases, everything.** Every file of
+  ours is compressed with `zlib` (standard library) and then encrypted — never the other
+  way round, since ciphertext does not compress. Flex XML compresses about 18× (a year of
+  an active options account: about 10 MB as received, under 1 MB compressed). Python's
+  standard library has no symmetric encryption, so this adds `cryptography` (AES-GCM),
+  and D9 adds `keyring`. Both are required dependencies of the package (Sergei,
+  2026-11-14): the released apps bundle everything anyway, and only a source install
+  could have done without them. The converter modules themselves still import only the
+  standard library. **The databases** (`data.db`, `exports.db`) are DuckDB files that
+  DuckDB encrypts itself — AES-GCM over the file, its write-ahead log and temporary files
+  — with the store's key (D9); DuckDB stores its data compressed in its own format.
+- **D9 — A password the user chooses, which the computer can remember** *(revised
+  2026-11-14, Sergei)*. Users are used to a password they keep themselves, not a key they
+  never see. The stored files are encrypted with one random key per store; `store.key`
+  (D14) holds that key locked by the password (`scrypt`, about 0.5 s, so guessing against
+  a copy of the folder is slow). Changing the password re-locks `store.key` alone; no data
+  file is rewritten. A wrong password fails the unlock and is reported as such.
+  **Remember on this computer** — a checkbox where the password is entered — keeps a copy
+  of the key in Windows Credential Manager or the macOS Keychain through `keyring`, and
+  the password is not asked for again on that computer. Next to it, a warning: the
+  password is still needed on another computer, or after a Windows password reset (macOS:
+  a reset login keychain), so keep it safe — a password manager is ideal. No periodic
+  re-prompt. A remembered copy that is missing or no longer opens the store simply means
+  asking for the password again, and remembering it anew.
+  The Flex token and query ID of each ledger (D20) live inside the encrypted store
+  (`ledger.enc`), entered once, so a new computer needs only the folder and the password.
+  An expired token gives a plain message saying how to make a new one, and users are told
+  the token can only fetch reports.
+  It protects copies of the folder and a disk read without the user's login; with the box
+  unticked, also everything while the tool is not running. Not code running as the user
+  while the store is open, or while the key is remembered.
+  A forgotten password with no remembered copy loses the store. Recovery reuses machinery
+  the tool needs anyway: re-fetch the history from IBKR and restore the export record from
+  Xero (D7). **A store is never overwritten:** starting over renames the old folder to
+  `…-unreadable-<date>` beside the new one, so a password remembered later still opens it.
   On macOS a keychain access prompt can appear after an update; signed builds with the
-  same identity should not trigger it, builds run from source (as Python) may.
+  same identity should not trigger it, builds run from source (as Python) may — it only
+  costs typing the password.
 - **D10 — Exports: everything not yet imported, counted once the user confirms.** An export
   takes an end date and by default contains every transaction up to it that has not been
   imported — so a backdated transaction (D5) lands in the next export despite its old
@@ -121,7 +134,7 @@ work can start.*
 - **D12 — The first run asks, per currency, for the last date already in Xero.** The tool
   fetches from the earliest of those dates and treats everything up to each currency's
   date as imported; a shortcut fills every currency with the same date. This is the same
-  feature as the restore after a lost key (D7, D9), written and tested once. A user with
+  feature as the restore after a forgotten password (D7, D9), written and tested once. A user with
   nothing in Xero gives a start date instead and nothing counts as imported. Fetching goes
   back in chunks of up to 365 days, with the cash continuity check across each boundary.
 - **D13 — Currencies are discovered by fetching first.** The first run fetches the last 365
@@ -138,21 +151,29 @@ work can start.*
 
   ```
   Windows: %LOCALAPPDATA%\IBKR to Xero\     macOS: ~/Library/Application Support/IBKR to Xero/
-    index.enc                       accounts: IB account ID, display name → folder
-    <random id>/                    one per IB account
-      account.enc                   base currency, currencies and their dates (D12)
+    store.key                       the store's key, locked by the password (D9)
+    store.lock                      store-wide lock (D21)
+    index.enc                       ledgers: display name, IB account IDs → folder (D20)
+    <random id>/                    one per ledger
+      ledger.lock                   the ledger's lock (D21)
+      ledger.enc                    Flex token and query ID (D9), base currency of each
+                                    IB account, currencies and their dates (D12)
       originals/<content hash>.enc  one per fetch (D6)
-      data.db.enc                   database image, rebuildable (D6)
-      exports.db.enc                export record, not rebuildable (D6, D10)
+      data.db                       DuckDB, encrypted by DuckDB (D8, D22); rebuildable (D6)
+      exports.db                    DuckDB, encrypted likewise; export record, not
+                                    rebuildable (D6, D10)
   ```
 
-  Local rather than roaming application data on Windows, so the data stays on the machine
-  whose Credential Manager holds its key (D9); Time Machine includes the macOS folder.
+  Local rather than roaming application data on Windows: the store belongs to one computer,
+  and moving it is a copy of the folder plus the password (D9); Time Machine includes the
+  macOS folder.
   Originals are named by a hash of their content, which gives unique names that reveal
   nothing — not recognition of a repeated fetch, since every report carries its own
   generation time; their date ranges live inside them, so a database rebuild (D6) reads each file to learn
   it. The export record is a file of its own, out of a rebuild's reach. One key covers the
-  whole store (D9). **Exported CSVs are not kept here:** the user has to find them to import
+  whole store (D9). A DuckDB file's main header stays readable — DuckDB keeps nothing
+  sensitive there — so it shows only that the file is a DuckDB database. **Exported CSVs
+  are not kept here:** the user has to find them to import
   into Xero, so they go to a visible folder of the user's choosing — by default one under
   Documents, a subfolder per export.
 - **D15 — Engine and CLI first, then the GUI; released once both have it.** The CLI is the
@@ -160,11 +181,11 @@ work can start.*
   followed); inexperienced users, who need the GUI's guided first run most, never meet a
   CLI-only version. CLI: `ibkr2xero fetch` (with a range for a manual re-fetch, D5),
   `ibkr2xero export [--to DATE]` (D10; a range for a re-export), confirming imports,
-  adding and selecting accounts (D7); the existing
-  one-statement mode unchanged. GUI, a first sketch (Sergei): a tab per account, and a tab
-  for converting a hand-downloaded Activity Statement as today; adding or editing an
-  account has fields for its Flex token and query ID (Sergei, 2026-11-12), written
-  straight to the credential store (D9) and never displayed again in full.
+  adding and selecting ledgers (D7, D20); the existing
+  one-statement mode unchanged. GUI, a first sketch (Sergei): a tab per ledger, and a tab
+  for converting a hand-downloaded Activity Statement as today; adding or editing a
+  ledger has fields for its Flex token and query ID (Sergei, 2026-11-12), written
+  straight into the encrypted store (D9) and never displayed again in full.
 - **D16 — A schema validator checks the user's Flex query** *(Sergei, 2026-11-12)*. Every
   fetch is checked before anything is stored: the required sections (table below) present,
   each with its required attributes on every row, the required levels of detail, XML
@@ -190,25 +211,35 @@ work can start.*
   CSV parser and the Flex parser each produce it. The CSV path builds it in memory as
   today (line numbers as IDs, no report dates); the store persists it. GST is where the
   sources differ: the CSV path keeps inferring it, Flex itemises it.
-  `data.db` (derived, rebuildable — D6), amounts as decimal **text** since SQLite has no
-  exact decimal type:
+  **Amounts are `DECIMAL(38,11)`** *(Sergei, 2026-11-14)*: Flex's at most 9 decimal places
+  plus two guard places, leaving 27 digits before the point. A value with more than 11
+  places rejects the fetch — DuckDB would round it silently. In DuckDB `+`, `−`, `SUM` and
+  `×` are exact (the scale grows; an overflow raises an error rather than going wrong), but
+  division returns a float, so anything that divides money does it in Python with
+  `Decimal`. Rounding happens only when writing output, as the converter already does;
+  DuckDB's `ROUND` and the converter's `ROUND_HALF_UP` both round half away from zero.
+  `data.db` (derived, rebuildable — D6):
 
   ```
-  meta              key, value      -- parser version (rebuild trigger), account, base currency
+  meta              key, value      -- parser version (rebuild trigger)
+  ib_account        id, base_currency                       -- the ledger's IB accounts (D20)
   period            from_date, to_date, original, generated_at, superseded_by
-  cash_report       period, currency, component, amount     -- our component names
-  trade             id, period, report_date, datetime, currency, asset_class, symbol,
+  cash_report       period, account, currency, component, amount  -- our component names
+  trade             id, period, account, report_date, datetime, currency, asset_class, symbol,
                     quantity, price, proceeds, commission, commission_currency, taxes, codes
-  cash_txn          id, period, report_date, date, currency, kind, description, amount
-  corporate_action  id, period, report_date, datetime, currency, description, proceeds
-  tax_item          id, period, date, currency, kind (gst|stamp_duty), amount, taxed_id
-  line              key, period, currency, date, amount, description, reference, source_id
+  cash_txn          id, period, account, report_date, date, currency, kind, description, amount
+  corporate_action  id, period, account, report_date, datetime, currency, description, proceeds
+  tax_item          id, period, account, date, currency, kind (gst|stamp_duty), amount, taxed_id
+  line              key, period, account, currency, date, amount, description, reference,
+                    source_id
   ```
 
-  `line` holds the Xero rows `convert` and `reconcile` produce per period, synthetic ones
-  included. Its `key` is stable across rebuilds — IBKR's transaction ID, plus a leg for
-  forex (`fx-base`, `fx-quote`, `fx-fee`); period and currency for synthetic rows
-  (`MTM:20260601-20260630:USD`) — because it is what `exports.db` (not rebuildable) records:
+  `line` holds the Xero rows `convert` and `reconcile` produce per period and IB account,
+  synthetic ones included. Its `key` is stable across rebuilds — the IB account and
+  IBKR's transaction ID, plus a leg for forex (`fx-base`, `fx-quote`, `fx-fee`); for
+  synthetic rows the account, period and currency (`MTM:<account>:20260601-20260630:USD`) —
+  because it is what `exports.db` (not rebuildable) records. The account is in every key
+  from the start, so supporting multi-account reports (D20) never changes a recorded key:
 
   ```
   export            id, created_at, to_date, folder
@@ -228,6 +259,51 @@ work can start.*
   GST naming a cash transaction that is not a fee rejects. The Activity Statement path
   keeps its inference (subset search, period-end `GST` row); bringing it in line where
   the attribution is unambiguous is open.
+- **D20 — The store's unit is a ledger: one Flex query, one or more IB accounts**
+  *(Sergei, 2026-11-14)*. A query can cover several IB accounts — a primary account and
+  the segregated one IBKR opens for sanctioned securities, say — and for tax and Xero they
+  are one: their cash goes to the same per-currency Xero bank accounts. A multi-account
+  Activity Statement (HTML, seen 2026-11-14) is a summary table followed by one complete
+  statement per account, each with its own sections and Cash Report; a Flex report is
+  expected to hold one `<FlexStatement>` per account likewise (unverified — the closed
+  account is no longer selectable in a query). So each IB account is reconciled against
+  its own Cash Report, and a mismatch in one cannot hide behind the other; the rows are
+  then merged per currency into one CSV per currency. Synthetic rows come per IB account
+  and period; a transfer between two accounts of a ledger appears as a pair that cancels
+  in Xero. **Built when a real multi-account Flex report is seen:** until then such a
+  report is rejected as today, saying multi-account queries are not supported yet. The
+  store is designed for it now, so its layout and recorded keys never change: the index
+  lists each ledger's IB accounts (D14), every database row carries its account, and so
+  does every line key (D18). **On screen and in the CLI a ledger is called an
+  *account*** (Sergei, 2026-11-14): almost every ledger is one IB account, and a ledger of
+  several lists their IDs under its display name. "Ledger" stays the word in the code and
+  this plan.
+- **D21 — Concurrent runs: a lock per ledger, held per operation** *(Sergei,
+  2026-11-14)*. A GUI left open and a CLI command, or two GUI tabs, can work on one ledger
+  at once; DuckDB lets only one process write a database file, and anything one of them
+  holds between operations goes stale — acting on a stale export record would send the
+  same transactions to Xero again. So fetch, export and confirm each lock their ledger,
+  open its databases, work, close them and unlock; the GUI rereads before each action. Adding, renaming or removing a ledger
+  (`index.enc`) and changing the password (`store.key`) take the store-wide lock, always
+  before a ledger's. An operation on a busy ledger is refused, saying what is running
+  there; other ledgers are unaffected. OS file locks (`msvcrt`, `fcntl`; standard library)
+  are released when their process dies, so a crash leaves no stale lock (checked on
+  Windows, 2026-11-14).
+- **D22 — The database engine is DuckDB, built with `httpfs` linked in** *(Sergei,
+  2026-11-14)*. A true fixed-point `DECIMAL` (D18) — SQLite has none: it turns a
+  `DECIMAL` column into floats, and amounts kept as text compare as strings — and an
+  engine built for the reports and complex queries D6 keeps the database for. DuckDB's
+  encryption (D8) writes only with OpenSSL, which DuckDB carries in its `httpfs`
+  extension and otherwise downloads on the first encrypted write. That extension cannot
+  ship as a file inside the notarised macOS app: DuckDB appends a trailer after the
+  binary, which Apple's signing refuses and DuckDB's loader requires (tested on CI,
+  2026-11-14). So **the release builds duckdb-python from source** with `httpfs`, and
+  static OpenSSL and curl from vcpkg, linked into its module (`BUILD_EXTENSIONS`), which
+  PyInstaller signs like any other library; the tool turns extension auto-install and
+  autoload off, so nothing is ever downloaded or loaded at run time. Cost: a from-source
+  DuckDB build per platform in CI, and a DuckDB version pinned by us. **Proof pending:**
+  the build is being tried on macOS (signed, notarised) and Windows; if it fails, this
+  decision reopens. *Open:* a source install gets PyPI's `duckdb`, which lacks `httpfs`.
 
 ## Build order
 
@@ -242,9 +318,10 @@ unchanged byte for byte against `examples/`.
    test. *Done 2026-11-12* (`flex.py`, `tests/test_flex.py`).
 3. **Flex client** — request, poll, back off, typed errors; the token a parameter.
    *Done 2026-11-12* (`flex_client.py`, `tests/test_flex_client.py`; checked live).
-4. **Store** — `data.db`/`exports.db`, compression and encryption (D8), the key and token
-   in `keyring` (D9), the folder layout (D14).
-5. **CLI** — fetch (incl. manual re-fetch), export, confirm, accounts (D15).
+4. **Store** — DuckDB `data.db`/`exports.db` (D22), compression and encryption (D8), the password,
+   `store.key` and the remembered key (D9), the folder layout (D14), ledgers (D20), locks
+   (D21).
+5. **CLI** — fetch (incl. manual re-fetch), export, confirm, ledgers (D15).
 6. **GUI**, then release (D15).
 
 ## Established from real Flex exports (2026-11-12)

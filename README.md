@@ -116,7 +116,7 @@ other files, wherever you chose to write them.
 
 ### Or install from source
 
-Requires Python 3.11+. No runtime dependencies (standard library only).
+Requires Python 3.11+. Runtime dependencies (`cryptography`, `keyring`) are installed by pip.
 
 ```sh
 git clone https://github.com/skoulik/IBKR-to-Xero.git
