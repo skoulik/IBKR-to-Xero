@@ -297,13 +297,19 @@ work can start.*
   extension and otherwise downloads on the first encrypted write. That extension cannot
   ship as a file inside the notarised macOS app: DuckDB appends a trailer after the
   binary, which Apple's signing refuses and DuckDB's loader requires (tested on CI,
-  2026-11-14). So **the release builds duckdb-python from source** with `httpfs`, and
-  static OpenSSL and curl from vcpkg, linked into its module (`BUILD_EXTENSIONS`), which
+  2026-11-14). So **we build duckdb-python from source** with `httpfs`, and static
+  OpenSSL and curl from vcpkg, linked into its module (`BUILD_EXTENSIONS`), which
   PyInstaller signs like any other library; the tool turns extension auto-install and
-  autoload off, so nothing is ever downloaded or loaded at run time. Cost: a from-source
-  DuckDB build per platform in CI, and a DuckDB version pinned by us. **Proof pending:**
-  the build is being tried on macOS (signed, notarised) and Windows; if it fails, this
-  decision reopens. *Open:* a source install gets PyPI's `duckdb`, which lacks `httpfs`.
+  autoload off, so nothing is ever downloaded or loaded at run time. **The wheels are
+  built once per DuckDB version and kept as release assets** *(Sergei, 2026-11-14)*: a
+  manual workflow builds them for macOS and Windows (DuckDB takes 15+ minutes to compile
+  per platform) and publishes them on a pre-release of this repository,
+  `duckdb-<version>-httpfs`, where they never expire — GitHub's cache drops entries unused
+  for 7 days, so it would miss between releases. The release workflow downloads them,
+  and a source install takes the same wheel from that release's URL, so developers run
+  the DuckDB the apps ship. Cost: the build to maintain, and a DuckDB version pinned by
+  us. **Proof pending:** the build is being tried on macOS (signed, notarised) and
+  Windows; if it fails, this decision reopens.
 
 ## Build order
 
