@@ -323,8 +323,12 @@ work can start.*
   a custom vcpkg triplet, for OpenSSL and curl; left to default it follows the CI runner's
   macOS, which would silently raise the app's minimum. Qt 6.12 needs macOS 14.4, but
   PySide6 6.12.0's own binding modules are built for macOS 26 (checked in the wheel
-  v0.2.0 shipped); the app is proven only on 15, where v0.2.0's smoke test runs it. **Proof pending:** the build is being tried on macOS (signed, notarised) and
-  Windows; if it fails, this decision reopens.
+  v0.2.0 shipped); the app is proven only on 15, where v0.2.0's smoke test runs it.
+  **Proven on CI, 2026-11-14** (a throwaway branch, since deleted): on macOS and Windows
+  the module reports `httpfs` `STATICALLY_LINKED`, depends only on the OS's own libraries
+  (Windows: no Visual C++ runtime to ship), and writes and reads encrypted databases
+  offline with no `LOAD` — in plain Python and in PyInstaller builds; on macOS the signed
+  `.app` and onefile CLI were both notarised. Windows wheel 18 MB.
 
 ## Build order
 
