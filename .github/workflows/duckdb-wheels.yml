@@ -7,8 +7,6 @@ name: DuckDB wheels
 # wheel, then publishes the wheels on the pre-release duckdb-<version>-httpfs, where
 # the release workflow and source installs take them from.
 on:
-  push:  # TEMPORARY - test runs from the branch; removed before it merges
-    branches: [duckdb-wheels]
   workflow_dispatch:
     inputs:
       duckdb:
