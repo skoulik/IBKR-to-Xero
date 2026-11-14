@@ -307,8 +307,14 @@ work can start.*
   `duckdb-<version>-httpfs`, where they never expire — GitHub's cache drops entries unused
   for 7 days, so it would miss between releases. The release workflow downloads them,
   and a source install takes the same wheel from that release's URL, so developers run
-  the DuckDB the apps ship. Cost: the build to maintain, and a DuckDB version pinned by
-  us. **Proof pending:** the build is being tried on macOS (signed, notarised) and
+  the DuckDB the apps ship. **That workflow caches its compiles** *(Sergei, 2026-11-14)*:
+  vcpkg pinned to a commit, its binary cache (`VCPKG_BINARY_SOURCES`, a folder) kept by
+  `actions/cache` keyed on that commit and the triplet, and `ccache` (`sccache` with MSVC)
+  for DuckDB, which duckdb-python's build uses whenever it is on the path. GitHub drops a
+  cache unused for 7 days, so this speeds reruns within a week — a build months later
+  compiles from scratch (measured: OpenSSL + curl 3 min on macOS and 7 on Windows, DuckDB
+  13 min on macOS and over 35 on Windows). Cost: the build to maintain, and a DuckDB
+  version pinned by us. **Proof pending:** the build is being tried on macOS (signed, notarised) and
   Windows; if it fails, this decision reopens.
 
 ## Build order
