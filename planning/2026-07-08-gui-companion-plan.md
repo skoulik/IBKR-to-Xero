@@ -4,6 +4,11 @@
 statement, get the report and links to the output files. Same contract as the
 CLI: reconcile or write nothing.*
 
+*Its decisions D1–D3 below were numbered before decision numbers became one space
+across all plans; they are recorded as [D42](2026-11-14-earlier-decisions.md#d42),
+[D43](2026-11-14-earlier-decisions.md#d43) and [D44](2026-11-14-earlier-decisions.md#d44)
+(2026-11-14), which is how to cite them.*
+
 ## Decisions
 
 ### D1 — Common engine, not a CLI wrapper

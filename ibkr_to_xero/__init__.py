@@ -1,4 +1,7 @@
-"""Convert IB Activity Statements into per-currency Xero import CSVs."""
+"""Convert IB Activity Statements into per-currency Xero import CSVs.
+
+Implements: AD-058
+"""
 
 from .convert import convert
 from .engine import FileOutput, RunOptions, RunResult, resolve_output_dir, run

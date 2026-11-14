@@ -5,6 +5,8 @@ entry point so the CLI, a GUI, or a web/API adaptor can all drive it the same
 way. The engine never performs console I/O: it returns a structured result and
 lets errors propagate as the existing typed exceptions (StatementError,
 ReconciliationError, and FileExistsError from the overwrite check).
+
+Implements: AD-019
 """
 
 from __future__ import annotations
@@ -52,7 +54,10 @@ class RunResult:
 
 def resolve_output_dir(statement_path: Path, output_dir: Path | None) -> Path:
     """Apply the default output-dir rule: an explicit dir wins, otherwise a
-    subfolder next to the statement, named after it without the extension."""
+    subfolder next to the statement, named after it without the extension.
+
+    Implements: AD-055
+    """
     if output_dir is not None:
         return output_dir
     subfolder = statement_path.stem
@@ -69,6 +74,8 @@ def run(statement_path: Path, options: RunOptions) -> RunResult:
     propagate as StatementError / ReconciliationError (bad or unreconcilable
     input) or FileExistsError (overwrite check); on any of them no output
     files are written.
+
+    Implements: AD-059, AD-007, AD-009, AD-010, AD-012
     """
     statement = parse_statement(statement_path)
     results = reconcile(
@@ -78,6 +85,7 @@ def run(statement_path: Path, options: RunOptions) -> RunResult:
     )
 
     if options.skip_zero_transactions:
+        # Implements: AD-057
         # Safe only after reconciliation: zero rows contribute nothing to the
         # sums, so dropping them cannot mask a mismatch.
         for result in results:
@@ -115,6 +123,7 @@ def run(statement_path: Path, options: RunOptions) -> RunResult:
         for result, path in zip(results, paths)
     ]
 
+    # Implements: AD-056
     report_lines = [
         "ibkr2xero conversion report",
         f"statement: {statement_path}",

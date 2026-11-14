@@ -4,6 +4,8 @@ The examples/ folder holds a real IB statement and hand-made reference
 outputs. It is gitignored (real account data), so tests that need it skip
 when it is absent instead of failing. The statement file is discovered by
 shape: reference outputs are named {CCY}.csv, the statement is the rest.
+
+Implements: AD-075
 """
 
 import re

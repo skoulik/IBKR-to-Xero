@@ -33,47 +33,24 @@ All money arithmetic uses `decimal.Decimal`; floats are forbidden for amounts.
 
 ## Architecture
 
-Pipeline in `ibkr_to_xero/`: `parser.py` → `convert.py` → `reconcile.py` → `writer.py`,
-orchestrated by `engine.run`, which `cli.py` and `gui.py` drive. The core is a pure library
-(no I/O besides parser/writer) so it can later back a web/Telegram front-end or a Xero API
-adaptor (see TODO.md M4/M5).
+The design is [ARCHITECTURE.md](ARCHITECTURE.md): the modules, what crosses between them,
+the rules they enforce and how the program ships, as numbered items (`AD-nnn`), every arrow
+of its diagrams one of them. It states the current design; the plans in `planning/` hold
+how each decision was reached.
 
-- **model.py** — the typed `Statement` every front end produces and `convert`/`reconcile`
-  consume: trades, corporate actions, cash transactions (by `CashKind`, whose value names
-  the reconciliation bucket), tax items (stamp duty), and the Cash Report as
-  currency → component → amount. Records carry a source `id`, a `where` for error messages
-  (`line 57`) and a `report_date` where the source has one. No source format leaks past
-  the front end (plan D18: the Flex report parser will produce the same model).
-- **parser.py** — the Activity Statement CSV front end, in two stages. `parse_sections`:
-  IB statements are many CSV sections in one file. Each row is `SectionName,Header|Data,...`;
-  a `Header` row defines the column names for the `Data` rows after it. A section can
-  re-emit `Header` rows (e.g. `Trades` per asset category) — the parser keeps a running
-  current-header per section. First cell carries a UTF-8 BOM. `to_statement` then maps the
-  in-scope sections onto the model, skipping aggregate rows and rejecting unknown trade
-  discriminators and asset categories.
-- **flex.py** — the Flex report (XML) front end; `parse_statement` picks it by content.
-  `SECTIONS` is the one table of required sections, row levels and fields: it drives both
-  the query validator (missing section/field/option ⇒ reject naming what to tick) and the
-  mapping. Rows are selected by report date; output rows keep their own dates. Details and
-  the field mapping: `planning/2026-11-11-flex-store-plan.md` (D16–D19, I1, I2).
-- **flex_client.py** — `FlexClient(token).fetch(query_id, from, to)` runs a query on IBKR's
-  Flex Web Service: SendRequest, then GetStatement polled with back-off; transient IBKR
-  codes (in progress, rate limit, …) are retried until `max_wait`, the rest raise
-  `FlexTokenError`/`FlexQueryError`/`FlexError`, network trouble `FlexUnavailableError`.
-  At most 365 days per request. The token is a parameter and must never reach a message;
-  the opener and clock are injectable, so tests use canned responses. User-facing messages
-  stay ASCII: a Windows console on a legacy code page cannot print `—` or `→`.
-- **convert.py** — maps the model's records to output rows per currency, in a fixed order
-  (trades, corporate actions, then cash transactions by kind). GST that the source links to
-  a fee (Flex GST Details) is folded into that fee's row with `(incl. GST {amt})`.
-- **reconcile.py** — cross-checks bucket sums against `Cash Report` components
-  (e.g. `Trades (Sales)+Trades (Purchase)+Commissions+GST == Σ trade cash`), enforces the
-  Starting/Ending identity, and builds the synthetic rows (`MTM`, `GST`, `ROUNDING` — tagged
-  in the Reference column).
-- **writer.py** — emits `{CCY}.csv` per currency with activity; quiet currencies get no
-  file. Also saves the run report (`write_report`; default `ibkr2xero_report.txt`,
-  `-r/--report-name`, off with `--no-save-report`) — the report is an output file too:
-  reserved in the overwrite check, never written on rejection.
+- **Keep it current.** A change that alters the design changes the document in the same
+  commit, and a design change is made in the document before the code. A new item takes
+  the number the document's header names, and the header moves on.
+- **Cite it.** Code, scripts and configuration name the items they realise in an
+  `Implements: AD-nnn` comment at the module, function or setting concerned — and a plan's
+  `Dnn` too where the reason matters to whoever edits that code.
+- **Decisions are one numbered space across `planning/`** — `Dnn`, each anchored `dnn` in the
+  plan that made it; those made before numbering are in
+  `planning/2026-11-14-earlier-decisions.md`. A new decision takes the next unused number, and
+  every item links the decisions it carries out.
+- **`tests/test_architecture.py` checks both directions:** an undefined, duplicated or
+  unlabelled identifier fails the suite; an item nothing cites yet is a warning, so the
+  document may run ahead of the code.
 
 ## IB statement domain knowledge
 

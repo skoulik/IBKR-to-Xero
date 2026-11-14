@@ -12,6 +12,8 @@ Zero fields are omitted (an expiry shows no price, a free trade no comm).
 The instrument type lives in the Reference column (STOCK/BOND/OPTION/FUTURE/
 FX/FX-FEE), not the description. The "(incl. GST)" qualifier is appended by
 reconcile.py once the embedded-GST cross-check has verified it.
+
+Implements: AD-016
 """
 
 from __future__ import annotations
@@ -65,6 +67,7 @@ def _labels(trade: Trade) -> str:
 
 
 def _trade_description(trade: Trade, stamp_duty: Decimal) -> str:
+    # Implements: AD-041
     text = f"{_signed_qty(trade)} {trade.symbol}{_labels(trade)}"
     if trade.price is not None and trade.price != 0:
         text += f" price: {_fmt_plain(trade.price)}"
@@ -84,6 +87,8 @@ def _stamp_duties(statement: Statement) -> dict[tuple[str, str, dt.datetime], De
     Activity Statement their symbol is an exchange option code that matches
     no trade — so they are skipped. A nonzero item that does not match exactly
     one trade would misattribute money => reject.
+
+    Implements: AD-045
     """
     trade_count: collections.Counter[tuple[str, str, dt.datetime]] = collections.Counter(
         (trade.currency, trade.symbol, trade.when) for trade in statement.trades
@@ -111,6 +116,8 @@ def _convert_forex_trade(trade: Trade, out: dict[str, list[OutputRow]]) -> None:
     Both legs share one description and are tagged FX so they can be matched
     across the two output files. The commission is charged in its own currency
     (USD in the Activity Statement) and emitted there as a row tagged FX-FEE.
+
+    Implements: AD-044
     """
     pair = trade.symbol
     base, _, quote = pair.partition(".")
@@ -150,6 +157,7 @@ def _convert_trades(statement: Statement, out: dict[str, list[OutputRow]]) -> No
         if trade.asset_class is AssetClass.FOREX:
             _convert_forex_trade(trade, out)
         elif trade.asset_class is AssetClass.FUTURE:
+            # Implements: AD-043
             # Futures notional never touches cash: the P/L arrives via the
             # Cash Report's "Cash Settling MTM" (one synthetic row per
             # period); only the per-trade commission is real dated cash.
@@ -164,6 +172,7 @@ def _convert_trades(statement: Statement, out: dict[str, list[OutputRow]]) -> No
                 )
             )
         else:
+            # Implements: AD-042
             # Cash trades: proceeds + commission hit the trade's currency.
             duty = duties.get((trade.currency, trade.symbol, trade.when), Decimal(0))
             out.setdefault(trade.currency, []).append(
@@ -184,6 +193,8 @@ def _convert_corporate_actions(statement: Statement, out: dict[str, list[OutputR
     description verbatim, tagged CORP. The cash flows through the Cash
     Report's Trades (Sales)/(Purchase) components, so these rows are
     cross-checked as part of the trades bucket.
+
+    Implements: AD-046 (with fee_gst and _convert_cash_txns)
     """
     for action in statement.corporate_actions:
         out.setdefault(action.currency, []).append(
@@ -245,6 +256,8 @@ def convert(statement: Statement) -> dict[str, list[OutputRow]]:
 
     Row order: trades, corporate actions, then the cash transactions by kind,
     each in source order — matching the reference outputs in examples/.
+
+    Implements: AD-040
     """
     out: dict[str, list[OutputRow]] = {}
     _convert_trades(statement, out)

@@ -11,6 +11,8 @@ trace) is caught by reconciliation, since the Cash Report still counts the cash.
 
 Rows are selected by IBKR's report date (plan I1): every row belongs to the
 period holding its reportDate, whatever its own date.
+
+Implements: AD-015
 """
 
 from __future__ import annotations
@@ -108,6 +110,8 @@ class SectionSpec:
     levelOfDetail it must have (None: any); option: what to tick for that
     level. fields: attributes every row read must carry (on the section
     element itself when rows is None).
+
+    Implements: AD-034 (with SECTIONS and _section_rows)
     """
 
     tag: str
@@ -152,7 +156,10 @@ _DATE_FORMAT_HINT = (
 
 
 def is_flex_report(path: str | Path) -> bool:
-    """Whether the file is XML (a Flex report) rather than an Activity Statement CSV."""
+    """Whether the file is XML (a Flex report) rather than an Activity Statement CSV.
+
+    Implements: AD-028
+    """
     with Path(path).open("rb") as fh:
         head = fh.read(512)
     return head.lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"<")
@@ -171,6 +178,7 @@ def parse_flex(path: str | Path) -> Statement:
 
 
 def _statement_element(root: ET.Element) -> ET.Element:
+    # Implements: AD-035 (with the date parsing below and to_statement); D20
     if root.tag != "FlexQueryResponse":
         raise StatementError(f"not a Flex report: root element is <{root.tag}>")
     statements = root.findall("FlexStatements/FlexStatement")
@@ -273,6 +281,7 @@ def _source(row: ET.Element, index: int, ident: str | None) -> dict:
 
 
 def _cash_report(rows: list[ET.Element]) -> dict[str, dict[str, Decimal]]:
+    # Implements: AD-036
     report: dict[str, dict[str, Decimal]] = {}
     for index, row in enumerate(rows):
         where = _where(row, index)
@@ -296,6 +305,7 @@ def _cash_report(rows: list[ET.Element]) -> dict[str, dict[str, Decimal]]:
 
 
 def _trades(rows: list[ET.Element]) -> list[Trade]:
+    # Implements: AD-037
     trades = []
     for index, row in enumerate(rows):
         where = _where(row, index)
@@ -350,6 +360,7 @@ def _corporate_actions(rows: list[ET.Element]) -> list[CorporateAction]:
 
 
 def _cash_txns(rows: list[ET.Element]) -> list[CashTxn]:
+    # Implements: AD-038 (with _transfers)
     txns = []
     for index, row in enumerate(rows):
         where = _where(row, index)
@@ -410,6 +421,7 @@ def _transfers(rows: list[ET.Element]) -> list[CashTxn]:
 
 
 def _tax_items(stamp_duty_rows: list[ET.Element], gst_rows: list[ET.Element]) -> list[TaxItem]:
+    # Implements: AD-039
     items = [
         TaxItem(
             **_source(row, index, None),

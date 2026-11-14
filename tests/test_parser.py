@@ -138,6 +138,15 @@ def test_unsupported_asset_category_rejected(tmp_path):
         ))
 
 
+def test_execution_level_trade_rows_rejected(tmp_path):
+    # D58: never seen in a real statement; beside an Order row they would double-count.
+    with pytest.raises(StatementError, match="export it with trades at order level"):
+        _parse(tmp_path, _TRADES_HEADER + (
+            'Trades,Data,Order,Stocks,USD,XYZ,"2026-06-15, 10:00:00",1,5,-5,-1,\n'
+            'Trades,Data,Trade,Stocks,USD,XYZ,"2026-06-15, 10:00:00",1,5,-5,-1,\n'
+        ))
+
+
 def test_unknown_discriminator_rejected(tmp_path):
     with pytest.raises(StatementError, match="unknown Trades DataDiscriminator 'Wat'"):
         _parse(tmp_path, _TRADES_HEADER + (

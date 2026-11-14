@@ -3,6 +3,8 @@
 The Activity Statement CSV parser (parser.py) and, later, the Flex report parser
 each produce a Statement; convert.py and reconcile.py only ever see this model,
 never a source format.
+
+Implements: AD-013, AD-027
 """
 
 from __future__ import annotations
@@ -67,7 +69,10 @@ class SectionRow:
 
 
 class AssetClass(enum.Enum):
-    """Trade instrument types; the value is the output's Reference tag."""
+    """Trade instrument types; the value is the output's Reference tag.
+
+    Implements: AD-024
+    """
 
     STOCK = "STOCK"
     OPTION = "OPTION"
@@ -81,6 +86,8 @@ class CashKind(enum.Enum):
 
     The value doubles as the bucket's name in reports and errors, and fixes the
     output order (this declaration order).
+
+    Implements: AD-023
     """
 
     FEE = "Fees"
@@ -92,6 +99,7 @@ class CashKind(enum.Enum):
 
 
 class TaxKind(enum.Enum):
+    # Implements: AD-025
     STAMP_DUTY = "stamp_duty"  # per-trade transaction tax, already inside its commission
     GST = "gst"  # GST charged as cash of its own, on the item named by taxed_id
 
@@ -103,6 +111,8 @@ class Record:
     id: the source's identifier — IBKR's transaction ID where it has one, else
         the source line number. where: how an error message points at it
         ("line 57"). report_date: when IBKR reported it, where the source says.
+
+    Implements: AD-022
     """
 
     id: str
@@ -167,6 +177,8 @@ class Statement:
     Cash Report component -> amount, components named as in the Activity
     Statement ("Starting Cash", "Trades (Sales)", ...); the base-currency
     summary is not included.
+
+    Implements: AD-021
     """
 
     period_start: dt.date
@@ -182,7 +194,10 @@ class Statement:
 
 @dataclass
 class OutputRow:
-    """One transaction line of the Xero import CSV."""
+    """One transaction line of the Xero import CSV.
+
+    Implements: AD-026 (with CurrencyResult below)
+    """
 
     date: dt.date
     amount: Decimal  # unrounded; rounding happens once, during reconciliation

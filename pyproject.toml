@@ -2,6 +2,7 @@
 requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
+# Implements: AD-068, AD-074
 [project]
 name = "ibkr-to-xero"
 version = "0.2.0"

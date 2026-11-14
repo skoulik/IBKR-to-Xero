@@ -9,6 +9,8 @@ carries a UTF-8 BOM (handled by utf-8-sig).
 Two stages: parse_sections() reads the generic section structure, and
 parse_statement() maps the in-scope sections onto the model (model.py) that
 convert.py and reconcile.py work on.
+
+Implements: AD-014
 """
 
 from __future__ import annotations
@@ -47,10 +49,11 @@ _SKIPPED_ROW_KINDS = {"Total", "SubTotal", "Total in USD", "Notes"}
 _PERIOD_SEP = re.compile(r"\s+-\s+")
 
 # Trades.DataDiscriminator values: which rows are cash transactions,
-# which are informational/aggregate. Anything unlisted => reject.
+# which are informational/aggregate. Anything unlisted => reject; execution-level
+# "Trade" rows with a message of their own (D58): beside an Order row they would
+# count the same trade twice.
 _TRADE_DISCRIMINATOR_IS_TXN = {
     "Order": True,
-    "Trade": True,  # some IB exports list individual executions as "Trade"
     "ClosedLot": False,
     "SubTotal": False,
     "Total": False,
@@ -113,6 +116,8 @@ def parse_sections(path: str | Path) -> RawStatement:
 
     Raises StatementError on any structural surprise: better to reject the
     input than to silently mis-read it.
+
+    Implements: AD-029, AD-030
     """
     path = Path(path)
     sections: dict[str, list[SectionRow]] = {}
@@ -180,6 +185,8 @@ def parse_statement(path: str | Path) -> Statement:
 
     An Activity Statement CSV or, recognised by its content, a Flex report
     (XML; flex.py).
+
+    Implements: AD-002, AD-008, AD-028
     """
     from .flex import is_flex_report, parse_flex  # flex.py never imports this module
 
@@ -215,10 +222,16 @@ def _source(row: SectionRow) -> dict:
 
 
 def _trades(raw: RawStatement) -> list[Trade]:
+    # Implements: AD-031
     trades = []
     for row in raw.rows("Trades"):
         discriminator = row["DataDiscriminator"]
         is_txn = _TRADE_DISCRIMINATOR_IS_TXN.get(discriminator)
+        if discriminator == "Trade":
+            raise StatementError(
+                f"line {row.line_no}: the statement lists trades by execution ('Trade' "
+                "rows); export it with trades at order level"
+            )
         if is_txn is None:
             raise StatementError(
                 f"line {row.line_no}: unknown Trades DataDiscriminator {discriminator!r}"
@@ -292,6 +305,7 @@ def _corporate_actions(raw: RawStatement) -> list[CorporateAction]:
 
 
 def _cash_txns(raw: RawStatement) -> list[CashTxn]:
+    # Implements: AD-032 (with _corporate_actions and _tax_items)
     txns = []
     for section, kind in _SIMPLE_SECTIONS.items():
         date_field = "Settle Date" if kind is CashKind.DEPOSIT_WITHDRAWAL else "Date"
@@ -337,6 +351,8 @@ def _cash_report(raw: RawStatement) -> dict[str, dict[str, Decimal]]:
     Rows must be bucketed by their *block*, not their own Currency cell — the
     base block can contain rows whose Currency cell names a real currency
     (e.g. GST charged in AUD shown converted to a base-USD line).
+
+    Implements: AD-033
     """
     report: dict[str, dict[str, Decimal]] = {}
     rows = raw.rows("Cash Report")

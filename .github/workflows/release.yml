@@ -1,5 +1,6 @@
 name: Build release installers
 
+# Implements: AD-072, AD-073, AD-074
 # Deliberately never runs on ordinary pushes. A tag build produces a draft
 # release; a manual run is a dry run that only attaches the installers to the
 # workflow run, so the pipeline can be exercised without minting a version.

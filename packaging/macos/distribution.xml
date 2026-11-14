@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <installer-gui-script minSpecVersion="2">
   <title>IBKR to Xero</title>
+  <!-- Implements: AD-070 -->
   <!-- Apple silicon only: on an Intel Mac, Installer refuses up front instead
        of installing an app that cannot run there. -->
   <options customize="always" require-scripts="false" hostArchitectures="arm64"/>

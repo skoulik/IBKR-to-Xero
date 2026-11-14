@@ -8,6 +8,8 @@ caller's business (plan D9), and it never appears in an error message.
 
 No I/O besides HTTPS to IBKR; the HTTP opener and the clock are injectable so
 tests run without the network.
+
+Implements: AD-020, AD-004, AD-065, AD-066, AD-067
 """
 
 from __future__ import annotations
@@ -137,6 +139,8 @@ class FlexClient:
         Raises FlexTokenError, FlexQueryError, FlexUnavailableError (incl. not
         delivered within max_wait seconds) or FlexError; ValueError for a
         range IBKR would refuse.
+
+        Implements: AD-063, AD-064
         """
         if to_date < from_date:
             raise ValueError(f"date range ends before it starts: {from_date} to {to_date}")

@@ -1,4 +1,7 @@
-"""Write per-currency CSVs in the Xero bank-statement import format."""
+"""Write per-currency CSVs in the Xero bank-statement import format.
+
+Implements: AD-018, AD-003
+"""
 
 from __future__ import annotations
 
@@ -22,6 +25,8 @@ def write_results(
     already exists — all or nothing, like the rest of the pipeline.
     report_name reserves one more target in that check for the run report,
     which the caller composes and saves afterwards via write_report().
+
+    Implements: AD-053, AD-054
     """
     out_dir = Path(out_dir)
     targets = [out_dir / f"{result.currency}.csv" for result in results]

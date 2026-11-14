@@ -1,4 +1,7 @@
-"""Command-line interface: ibkr2xero <statement.csv|report.xml> [-o OUTDIR]."""
+"""Command-line interface: ibkr2xero <statement.csv|report.xml> [-o OUTDIR].
+
+Implements: AD-060, AD-001, AD-005, AD-074
+"""
 
 from __future__ import annotations
 

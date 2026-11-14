@@ -22,6 +22,8 @@ Ending Cash and the cash-flow components in between. Reconciliation enforces:
 
 All failures across all currencies are gathered into one ReconciliationError
 so the user sees the complete picture; no output is written on failure.
+
+Implements: AD-017, AD-011, AD-047, AD-049, AD-050, AD-052
 """
 
 from __future__ import annotations
@@ -133,6 +135,8 @@ def _attribute_gst_gap(
     gap: Decimal, fee_rows: list[OutputRow]
 ) -> tuple[str, list[OutputRow]]:
     """Explain gap as 10% GST on a subset of this currency's Fees rows.
+
+    Implements: AD-051 (with the GST checks in reconcile)
 
     Returns (status, contributing_rows) with status one of:
       "full"      — 10% of all fee rows == gap (rows = all of them)
@@ -422,6 +426,7 @@ def reconcile(
             continue  # no cash activity in this currency: no file
 
         # (5) Rounding residual, in the 2dp world the accounting system lives in.
+        # Implements: AD-048
         rows = [
             OutputRow(
                 date=r.date,

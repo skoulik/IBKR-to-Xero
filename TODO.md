@@ -139,14 +139,15 @@ into **per-currency** transaction CSVs in the Xero bank-statement import format
         `skoulik.ibkr2xero`. 0.1.0 installed under `com.sergeikulik.*` receipts; the
         README names only the new ones (Sergei's call). The GUI keeps no preferences, so
         no Qt organisation name is set and nothing else is keyed on either.
-  - [ ] **Windows CLI: `--onefile` trips antivirus heuristics** (postponed 2026-08-11).
-        Kaspersky deleted the built `ibkr2xero.exe` during a local build; the `--onedir`
-        GUI beside it was untouched. The onefile bootloader extracts its DLLs to `%TEMP%`
-        and loads them from there, which reads as a dropper to behavioural scanners — and
-        it pays that unpack cost on every run. Switching the CLI to `--onedir` under
-        `{app}\cli` removes the behaviour (build script, the `[Files]` entry, and `AppPath`
-        in the installer's PATH code); macOS would stay onefile. Costs ~35-40 MB installed,
-        much less in the installer thanks to solid compression.
+  - [ ] **The GUI and the CLI in one folder, sharing their files** (decided 2026-11-14,
+        [D56](planning/2026-11-14-earlier-decisions.md#d56); ARCHITECTURE AD-069, AD-076,
+        AD-077). The one-file CLI unpacks everything on every run — over 50 MB once DuckDB is
+        in — and Kaspersky deleted the built `ibkr2xero.exe` as a dropper (2026-08-11). To
+        build before the next release: one PyInstaller spec, both executables over one
+        `_internal` (BrokerAI's `doc_pseudonymiser.spec` is the pattern, `LSBackgroundOnly`
+        fix included); the Windows installer's components become shortcuts and `PATH`; the
+        macOS package installs the app always and links the CLI into `/usr/local/bin`; the
+        README's uninstall steps follow.
   - [ ] Python users keep `pip install -e .` (already documented in README); pipx/PyPI
         publishing deliberately **not** pursued for now
 

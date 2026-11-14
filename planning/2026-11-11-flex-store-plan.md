@@ -4,7 +4,7 @@
 IBKR's Flex Web Service into a local store whose date ranges join up, and generate the
 Xero CSVs from the store instead of from a hand-downloaded Activity Statement. Same
 contract as today: reconcile or write nothing. Every design question is decided
-(D1–D22), and both facts the engine depended on are established (I1, I2): the engine
+(D1–D22, D57), and both facts the engine depended on are established (I1, I2): the engine
 work can start.*
 
 ## Background
@@ -30,20 +30,20 @@ work can start.*
 
 ## Decided (Sergei, 2026-11-11)
 
-- **D1 — On demand, no scheduler.** The user runs the tool as often as they like; each run
+- <a id="d1"></a>**D1 — On demand, no scheduler.** The user runs the tool as often as they like; each run
   catches up from the end of the stored data.
-- **D2 — Complete days only.** A run fetches up to the last day IBKR has closed, never a
+- <a id="d2"></a>**D2 — Complete days only.** A run fetches up to the last day IBKR has closed, never a
   day still in progress.
-- **D3 — Synthetic rows per stored period.** `MTM`, `GST` and `ROUNDING` lines are worked
+- <a id="d3"></a>**D3 — Synthetic rows per stored period.** `MTM`, `GST` and `ROUNDING` lines are worked
   out per fetch period, so an export over several periods carries one of each per period.
   Shorter periods also make GST attribution to specific fee rows easier.
-- **D4 — Pushing to Xero (M5) is out of scope here.** It is more than a bank feed: a trade
+- <a id="d4"></a>**D4 — Pushing to Xero (M5) is out of scope here.** It is more than a bank feed: a trade
   touches several Xero accounts. Sergei's own setup, for when M5 is planned — and possibly
   the model a full integration will require: each stock is an inventory item with its own
   tracking account, posting to share purchases and share sales; options share one
   inventory account, with purchases and sales posted by manual journal. Many nuances, to
   be discussed then.
-- **D5 — Periods join by report date; backdated transactions need no special handling**
+- <a id="d5"></a>**D5 — Periods join by report date; backdated transactions need no special handling**
   *(revised 2026-11-12)*. Backdated transactions are old-dated rows turning up in a newer
   report (Sergei's experience, confirmed by I1), never an old period rewritten. Since a fetch
   selects by report date, each run fetches from the day after the stored data ends, and a
@@ -57,7 +57,7 @@ work can start.*
   confirmed re-fetch is kept beside the originals it overlaps (D6) and, being newer,
   supersedes them for its range whenever the database is built. A changed transaction
   already exported is listed for the user to correct in Xero by hand.
-- **D6 — Originals as the record, a database for queries.** Every fetched report is kept
+- <a id="d6"></a>**D6 — Originals as the record, a database for queries.** Every fetched report is kept
   exactly as received, one immutable file per fetch, self-describing (a Flex report carries
   its own date range and generation time; D14). Parsed transactions live in a DuckDB
   database (D22), for the reports, search,
@@ -69,7 +69,7 @@ work can start.*
   *One exception:* the record of what has been exported (D10) cannot be rebuilt from the
   originals, so it lives apart from the derived tables and survives a rebuild — losing it
   would let the next export re-send transactions already in Xero.
-- **D7 — A hidden per-user folder holding several ledgers.** The store lives in the
+- <a id="d7"></a>**D7 — A hidden per-user folder holding several ledgers.** The store lives in the
   platform's per-user application-data location, not a folder the user picks. It holds
   any number of ledgers (D20), each kept separately; the CLI and the GUI select which one
   a run works on. The folder's structure is D14.
@@ -81,7 +81,7 @@ work can start.*
   (D5) — a backdated transaction reported after the mark but dated before it is ambiguous.
   A restore treats transactions reported after the mark as not imported, and lists the
   ones dated before it for the user to check against Xero.
-- **D8 — Encrypted at rest: the originals, the databases, everything.** Every file of
+- <a id="d8"></a>**D8 — Encrypted at rest: the originals, the databases, everything.** Every file of
   ours is compressed with `zlib` (standard library) and then encrypted — never the other
   way round, since ciphertext does not compress. Flex XML compresses about 18× (a year of
   an active options account: about 10 MB as received, under 1 MB compressed). Python's
@@ -92,7 +92,7 @@ work can start.*
   standard library. **The databases** (`data.db`, `exports.db`) are DuckDB files that
   DuckDB encrypts itself — AES-GCM over the file, its write-ahead log and temporary files
   — with the store's key (D9); DuckDB stores its data compressed in its own format.
-- **D9 — A password the user chooses, which the computer can remember** *(revised
+- <a id="d9"></a>**D9 — A password the user chooses, which the computer can remember** *(revised
   2026-11-14, Sergei)*. Users are used to a password they keep themselves, not a key they
   never see. The stored files are encrypted with one random key per store; `store.key`
   (D14) holds that key locked by the password (`scrypt`, about 0.5 s, so guessing against
@@ -119,7 +119,7 @@ work can start.*
   On macOS a keychain access prompt can appear after an update; signed builds with the
   same identity should not trigger it, builds run from source (as Python) may — it only
   costs typing the password.
-- **D10 — Exports: everything not yet imported, counted once the user confirms.** An export
+- <a id="d10"></a>**D10 — Exports: everything not yet imported, counted once the user confirms.** An export
   takes an end date and by default contains every transaction up to it that has not been
   imported — so a backdated transaction (D5) lands in the next export despite its old
   date, and nothing goes out twice. Written files are *pending* until the user confirms
@@ -128,16 +128,16 @@ work can start.*
   bank account and one can be imported without another. Re-exporting a range regardless
   of the record is always possible. Later (M5) the tool could check Xero itself instead
   of asking.
-- **D11 — Flex reports in XML.** Named attributes, a transaction ID on every row, a fixed
+- <a id="d11"></a>**D11 — Flex reports in XML.** Named attributes, a transaction ID on every row, a fixed
   structure to read against; Flex CSV would be a layout of its own to learn anyway, and
   the stored copies are encrypted, so a spreadsheet-readable format buys the user nothing.
-- **D12 — The first run asks, per currency, for the last date already in Xero.** The tool
+- <a id="d12"></a>**D12 — The first run asks, per currency, for the last date already in Xero.** The tool
   fetches from the earliest of those dates and treats everything up to each currency's
   date as imported; a shortcut fills every currency with the same date. This is the same
   feature as the restore after a forgotten password (D7, D9), written and tested once. A user with
   nothing in Xero gives a start date instead and nothing counts as imported. Fetching goes
   back in chunks of up to 365 days, with the cash continuity check across each boundary.
-- **D13 — Currencies are discovered by fetching first.** The first run fetches the last 365
+- <a id="d13"></a>**D13 — Currencies are discovered by fetching first.** The first run fetches the last 365
   days (one request) and asks about each currency in its Cash Report — those with activity
   or a balance that year. If the earliest date given is further back, it fetches backwards
   to it in 365-day chunks, and a currency appearing only in older data is asked about when
@@ -145,7 +145,7 @@ work can start.*
   nothing to flag it. The Flex Cash Report lists every currency holding a balance, even
   one with no activity in the period, which the Activity Statement leaves out; such a
   currency is asked about too and produces no file.
-- **D14 — Folder structure: everything encrypted, nothing readable by name.** Someone
+- <a id="d14"></a>**D14 — Folder structure: everything encrypted, nothing readable by name.** Someone
   holding a copy of the folder learns neither which accounts it holds nor what periods —
   only file sizes and times.
 
@@ -157,7 +157,8 @@ work can start.*
     <random id>/                    one per ledger
       ledger.lock                   the ledger's lock (D21)
       ledger.enc                    Flex token and query ID (D9), base currency of each
-                                    IB account, currencies and their dates (D12)
+                                    IB account, currencies and their dates (D12),
+                                    GST rate (D57)
       originals/<content hash>.enc  one per fetch (D6)
       data.db                       DuckDB, encrypted by DuckDB (D8, D22); rebuildable (D6)
       exports.db                    DuckDB, encrypted likewise; export record, not
@@ -176,7 +177,7 @@ work can start.*
   are not kept here:** the user has to find them to import
   into Xero, so they go to a visible folder of the user's choosing — by default one under
   Documents, a subfolder per export.
-- **D15 — Engine and CLI first, then the GUI; released once both have it.** The CLI is the
+- <a id="d15"></a>**D15 — Engine and CLI first, then the GUI; released once both have it.** The CLI is the
   quickest way to build and test the engine against real data (the order the GUI companion
   followed); inexperienced users, who need the GUI's guided first run most, never meet a
   CLI-only version. CLI: `ibkr2xero fetch` (with a range for a manual re-fetch, D5),
@@ -186,7 +187,7 @@ work can start.*
   for converting a hand-downloaded Activity Statement as today; adding or editing a
   ledger has fields for its Flex token and query ID (Sergei, 2026-11-12), written
   straight into the encrypted store (D9) and never displayed again in full.
-- **D16 — A schema validator checks the user's Flex query** *(Sergei, 2026-11-12)*. Every
+- <a id="d16"></a>**D16 — A schema validator checks the user's Flex query** *(Sergei, 2026-11-12)*. Every
   fetch is checked before anything is stored: the required sections (table below) present,
   each with its required attributes on every row, the required levels of detail, XML
   format and `yyyyMMdd`/`HHmmss`/`;` date formats; anything missing rejects, naming the
@@ -196,14 +197,14 @@ work can start.*
   with no rows in the period carries no attributes, so its columns are checked when a row
   first appears; an unticked cash-transaction type (e.g. Commission Adjustments) leaves no
   trace, but its cash is still in the Cash Report, so reconciliation rejects the period.
-- **D17 — Descriptions are Flex's own wording** *(Sergei, 2026-11-12)*. Pass-through rows (cash
+- <a id="d17"></a>**D17 — Descriptions are Flex's own wording** *(Sergei, 2026-11-12)*. Pass-through rows (cash
   transactions, corporate actions) differ from the Activity Statement's: upper case and
   abbreviated (`USD DEBIT INT FOR JAN-2026` for `USD Debit Interest for Jan-2026`; ADR fees
   gain ` - FEE`). No Xero rule matches on them, and reproducing the statement's wording
   would be guesswork. Trade descriptions follow the existing grammar and come out
   identical, except a bond's symbol, which Flex gives without the statement's trailing
   rate (`T 4 1/2 05/15/38`, not `T 4 1/2 05/15/38 0.0%`).
-- **D18 — One typed model for both front ends, persisted as the database** *(Sergei,
+- <a id="d18"></a>**D18 — One typed model for both front ends, persisted as the database** *(Sergei,
   2026-11-12)*. The conversion logic is format-independent — trade cash, forex legs and fee,
   futures, event codes, the description grammar, the stamp-duty join, the Cash Report
   checks, MTM and rounding all carried over to Flex unchanged — so `convert` and
@@ -247,7 +248,7 @@ work can start.*
   exported_line     line_key, export_file
   ```
 
-- **D19 — GST on fees folds into the fee row when the source links it** *(Sergei,
+- <a id="d19"></a>**D19 — GST on fees folds into the fee row when the source links it** *(Sergei,
   2026-11-12)*. Flex's GST Details (`SalesTaxes`) names the fee each GST charge was levied
   on (`taxableTransactionID`). Such GST is added to its fee row's amount, and the
   description gains `(incl. GST {amt})` — one line per fee, as trade commissions already
@@ -259,7 +260,7 @@ work can start.*
   GST naming a cash transaction that is not a fee rejects. The Activity Statement path
   keeps its inference (subset search, period-end `GST` row); bringing it in line where
   the attribution is unambiguous is open.
-- **D20 — The store's unit is a ledger: one Flex query, one or more IB accounts**
+- <a id="d20"></a>**D20 — The store's unit is a ledger: one Flex query, one or more IB accounts**
   *(Sergei, 2026-11-14)*. A query can cover several IB accounts — a primary account and
   the segregated one IBKR opens for sanctioned securities, say — and for tax and Xero they
   are one: their cash goes to the same per-currency Xero bank accounts. A multi-account
@@ -278,7 +279,7 @@ work can start.*
   *account*** (Sergei, 2026-11-14): almost every ledger is one IB account, and a ledger of
   several lists their IDs under its display name. "Ledger" stays the word in the code and
   this plan.
-- **D21 — Concurrent runs: a lock per ledger, held per operation** *(Sergei,
+- <a id="d21"></a>**D21 — Concurrent runs: a lock per ledger, held per operation** *(Sergei,
   2026-11-14)*. A GUI left open and a CLI command, or two GUI tabs, can work on one ledger
   at once; DuckDB lets only one process write a database file, and anything one of them
   holds between operations goes stale — acting on a stale export record would send the
@@ -289,7 +290,7 @@ work can start.*
   there; other ledgers are unaffected. OS file locks (`msvcrt`, `fcntl`; standard library)
   are released when their process dies, so a crash leaves no stale lock (checked on
   Windows, 2026-11-14).
-- **D22 — The database engine is DuckDB, built with `httpfs` linked in** *(Sergei,
+- <a id="d22"></a>**D22 — The database engine is DuckDB, built with `httpfs` linked in** *(Sergei,
   2026-11-14)*. A true fixed-point `DECIMAL` (D18) — SQLite has none: it turns a
   `DECIMAL` column into floats, and amounts kept as text compare as strings — and an
   engine built for the reports and complex queries D6 keeps the database for. DuckDB's
@@ -331,6 +332,12 @@ work can start.*
   (Windows: no Visual C++ runtime to ship), and writes and reads encrypted databases
   offline with no `LOAD` — in plain Python and in PyInstaller builds; on macOS the signed
   `.app` and onefile CLI were both notarised. Windows wheel 18 MB.
+- <a id="d57"></a>**D57 — The GST rate is a ledger setting** *(Sergei, 2026-11-14)*. The
+  reconciliation's GST checks assume Australia's 10% ([D37](2026-11-14-earlier-decisions.md#d37));
+  a ledger keeps its own rate in `ledger.enc` beside its databases, 10% by default, and
+  reconciliation takes the rate as a parameter. Until the GUI can edit it, it stays 10%; the
+  one-shot conversion of a downloaded statement uses 10% too. A non-Australian account with a
+  different rate is then a setting away, not a code change.
 
 ## Build order
 

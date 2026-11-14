@@ -4,6 +4,8 @@ A one-shot window over the same engine the CLI uses: choose (or drop) a
 statement, get the report and links to the output files. Same contract as the
 CLI — reconcile or write nothing. This is a thin view; all logic lives in
 ``engine.run``.
+
+Implements: AD-061, AD-001, AD-062, AD-074
 """
 
 from __future__ import annotations
@@ -66,7 +68,10 @@ def _app_icon() -> QIcon:
 
 
 class ConversionWorker(QObject):
-    """Runs one conversion off the UI thread and reports back via signals."""
+    """Runs one conversion off the UI thread and reports back via signals.
+
+    Implements: AD-006
+    """
 
     succeeded = Signal(object)  # RunResult
     overwrite_conflict = Signal(str)  # str(FileExistsError)
