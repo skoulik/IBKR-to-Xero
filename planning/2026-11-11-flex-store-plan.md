@@ -115,7 +115,7 @@ work can start.*
   A forgotten password with no remembered copy loses the store. Recovery reuses machinery
   the tool needs anyway: re-fetch the history from IBKR and restore the export record from
   Xero (D7). **A store is never overwritten:** starting over renames the old folder to
-  `…-unreadable-<date>` beside the new one, so a password remembered later still opens it.
+  `IBKR to Xero (password forgotten <date>)` beside the new one (D62), so a password remembered later still opens it.
   On macOS a keychain access prompt can appear after an update; signed builds with the
   same identity should not trigger it, builds run from source (as Python) may — it only
   costs typing the password.

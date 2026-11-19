@@ -147,3 +147,20 @@ DuckDB that ships, on Windows and the Mac alike. Then the modules, bottom up: `v
   operation says only that another IBKR to Xero window or command is working on that account
   (or on the store). *Declined:* the text written while the lock is held and emptied on
   release.
+- <a id="d61"></a>**D61 — Removing an account deletes it** *(Sergei, 2026-11-19)*. After a
+  confirmation, the ledger leaves the index and its folder is deleted: originals, databases,
+  export record. Adding it back is the first run again, asking per currency for the last date
+  already in Xero (D12) — the path a forgotten password takes too. *Declined:* hiding it,
+  data kept, with a way to show removed accounts — nothing lost, but the data stays on disk
+  for someone who wanted it gone, and it needs a restore in the UI.
+- <a id="d62"></a>**D62 — A store set aside is named for why** *(Sergei, 2026-11-19; revises
+  D9's name)*. Starting over renames the old folder to `IBKR to Xero (password forgotten
+  <date>)` beside the new one — ` 2`, ` 3` added for a second the same day — saying why it is
+  there and what would open it. *Declined:* D9's `…-unreadable-<date>` (the right password
+  still reads it) and a neutral `(set aside <date>)`.
+- <a id="d63"></a>**D63 — Changing the password does not ask for the current one** *(Sergei,
+  2026-11-19)*. The store is open, so its key is at hand; and someone who has forgotten the
+  password while the computer still remembers the key can set a new one, instead of losing the
+  store the day the remembered copy goes (another computer, a Windows password reset). Anyone at
+  the logged-in computer could do the same — and could read everything the open store shows
+  anyway. *Declined:* the usual current-password check.

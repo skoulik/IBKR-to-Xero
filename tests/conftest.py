@@ -11,9 +11,10 @@ Implements: AD-075
 import re
 from pathlib import Path
 
+import keyring.errors
 import pytest
 
-from ibkr_to_xero import parse_statement
+from ibkr_to_xero import parse_statement, vault
 
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 
@@ -53,3 +54,40 @@ def fy_statement():
             if (parsed.period_end - parsed.period_start).days > 300:
                 return parsed
     pytest.skip("no full-year example statement in examples/ (gitignored)")
+
+
+class MemoryKeyring:
+    """keyring's backend interface, in memory. Not a `KeyringBackend` subclass:
+    those register themselves with keyring, process-wide.
+
+    Implements: AD-087
+    """
+
+    def __init__(self):
+        self.entries: dict[tuple[str, str], str] = {}
+        self.fail = False
+
+    def _maybe_fail(self):
+        if self.fail:
+            raise keyring.errors.KeyringError("the credential store is locked")
+
+    def get_password(self, service, username):
+        self._maybe_fail()
+        return self.entries.get((service, username))
+
+    def set_password(self, service, username, password):
+        self._maybe_fail()
+        self.entries[(service, username)] = password
+
+    def delete_password(self, service, username):
+        self._maybe_fail()
+        if self.entries.pop((service, username), None) is None:
+            raise keyring.errors.PasswordDeleteError("not found")
+
+
+@pytest.fixture
+def memory_keyring(monkeypatch):
+    """The OS credential store, replaced by one in memory for the test."""
+    backend = MemoryKeyring()
+    monkeypatch.setattr(vault, "_backend", lambda: backend)
+    return backend

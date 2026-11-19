@@ -4,7 +4,7 @@
 |---|---|
 | **Document** | How the converter is built: its modules, the data between them, the rules they enforce, and how it ships |
 | **Status** | Current design, maintained with the code: a change to either changes the other in the same commit |
-| **Items** | [AD-001](#ad-001) to [AD-090](#ad-090). The next takes **AD-091** |
+| **Items** | [AD-001](#ad-001) to [AD-104](#ad-104). The next takes **AD-105** |
 
 ## Contents
 
@@ -89,6 +89,7 @@ flowchart TD
     reconcile["reconcile.py"]
     writer["writer.py"]
     client["flex_client.py"]
+    store["store.py"]
     vault["vault.py"]
     locks["locks.py"]
     ibkr[["IBKR Flex Web Service"]]
@@ -104,6 +105,8 @@ flowchart TD
     engine -->|write_results, write_report · AD-012| writer
     client -->|SendRequest, GetStatement · AD-004| ibkr
     vault -->|a remembered key · AD-080| creds
+    store -->|keys, seals, the remembered key · AD-091| vault
+    store -->|locked · AD-092| locks
 ```
 
 Every module imports `model.py` ([AD-013](#ad-013)); those imports are not drawn.
@@ -118,6 +121,8 @@ Every module imports `model.py` ([AD-013](#ad-013)); those imports are not drawn
 | <a id="ad-010"></a>**AD-010** | `engine.py` | `reconcile.py` | `reconcile(Statement, rows, accept_unattributed_gst=)` → `CurrencyResult`s, or `ReconciliationError` ([AD-052](#ad-052)) | [D23](planning/2026-11-14-earlier-decisions.md#d23), [D42](planning/2026-11-14-earlier-decisions.md#d42) |
 | <a id="ad-011"></a>**AD-011** | `reconcile.py` | `convert.py` | `fee_gst(Statement)` → fee ID → GST folded into it, so reconciliation checks that GST with the fees ([AD-051](#ad-051)) | [D19](planning/2026-11-11-flex-store-plan.md#d19) |
 | <a id="ad-012"></a>**AD-012** | `engine.py` | `writer.py` | `write_results(results, folder, overwrite=, report_name=)` and `write_report(folder, name, text)` | [D41](planning/2026-11-14-earlier-decisions.md#d41), [D42](planning/2026-11-14-earlier-decisions.md#d42) |
+| <a id="ad-091"></a>**AD-091** | `store.py` | `vault.py` | `store.key`'s contents locked, unlocked and checked; files sealed and opened; content names; the remembered key kept, read and forgotten ([section 11](#the-stores-keys)) | [D8](planning/2026-11-11-flex-store-plan.md#d8), [D9](planning/2026-11-11-flex-store-plan.md#d9) |
+| <a id="ad-092"></a>**AD-092** | `store.py` | `locks.py` | `locked(path)` on `store.lock` and each `ledger.lock` ([AD-089](#ad-089)) | [D21](planning/2026-11-11-flex-store-plan.md#d21) |
 
 | Item | Module | Its job | Decisions |
 |---|---|---|---|
@@ -131,6 +136,7 @@ Every module imports `model.py` ([AD-013](#ad-013)); those imports are not drawn
 | <a id="ad-020"></a>**AD-020** | `flex_client.py` | Runs a Flex query over HTTPS ([section 10](#10-the-flex-web-service-client)); no other I/O | [D11](planning/2026-11-11-flex-store-plan.md#d11), [D15](planning/2026-11-11-flex-store-plan.md#d15) |
 | <a id="ad-081"></a>**AD-081** | `vault.py` | The store's keys and the sealing of its files ([section 11](#the-stores-keys)): bytes in and out, no files or folders; the only module using `cryptography` and `keyring`. Its errors are `VaultError`s | [D8](planning/2026-11-11-flex-store-plan.md#d8), [D9](planning/2026-11-11-flex-store-plan.md#d9) |
 | <a id="ad-088"></a>**AD-088** | `locks.py` | Exclusive locks on files ([section 11](#locks)); the standard library only, and nothing else of the store | [D21](planning/2026-11-11-flex-store-plan.md#d21) |
+| <a id="ad-093"></a>**AD-093** | `store.py` | The store's folder ([section 11](#the-folder)): created and opened, its password, its ledgers and their settings and originals, its locks. Knows nothing of DuckDB; its errors are `StoreError`s | [D7](planning/2026-11-11-flex-store-plan.md#d7), [D14](planning/2026-11-11-flex-store-plan.md#d14) |
 
 ## 3. The model
 
@@ -229,8 +235,9 @@ Every module imports `model.py` ([AD-013](#ad-013)); those imports are not drawn
 | <a id="ad-083"></a>**AD-083** | `store.key` | `lock_key(key, password, store_id, cost)` gives the file's contents: JSON text holding the format (1), the store ID, the scrypt cost and a random salt, the store key sealed with AES-GCM under the key scrypt derives from the password, and a check value derived from the store key. The password is taken in Unicode NFC, so the same password typed on another system opens it. `unlock_key(contents, password)` returns the key: one the password does not open is `WrongPassword`; contents that do not parse, of another format, or whose key fails the check are `KeyFileUnreadable`. `store_id_of(contents)` reads the ID without the password; `key_opens(contents, key)` checks a key against the check value. The default cost, N=2¹⁷, r=8, p=1, takes about half a second and 128 MiB; being in the file, it can be raised without breaking an existing store. A cost needing over 1 GiB is unreadable rather than attempted | [D9](planning/2026-11-11-flex-store-plan.md#d9), [D14](planning/2026-11-11-flex-store-plan.md#d14) |
 | <a id="ad-084"></a>**AD-084** | Sealed files | `seal(key, data, purpose)` compresses with `zlib`, then encrypts with AES-GCM under a fresh random 96-bit nonce: a format byte (1), the nonce, then the ciphertext and its tag. The purpose — `index`, `ledger:<id>`, `original:<hash>` — is authenticated with the format byte, so one sealed file cannot stand in for another. `unseal(key, sealed, purpose)` returns the data; a file that does not open is `Damaged`, never a wrong password, since the key has been proven by then | [D8](planning/2026-11-11-flex-store-plan.md#d8), [D14](planning/2026-11-11-flex-store-plan.md#d14) |
 | <a id="ad-085"></a>**AD-085** | The remembered key | `remember(store_id, key)` keeps the key, in base64, as the credential `IBKR to Xero — store <id>`, user name `store key`, replacing any earlier one. On Windows it is a generic credential persisted on this computer only; on macOS a login-keychain item, never marked to sync. The store is the OS's own, not `keyring`'s pick of backend, which chains backends once a second is installed and would bypass that persistence. `remembered(store_id)` returns the key or `None`: missing, malformed, or a credential store that fails — each means asking for the password; the caller checks the key with `key_opens`. `forget(store_id)` removes it, a missing one being no error. A credential store that fails to keep or remove a key is a `VaultError` | [D9](planning/2026-11-11-flex-store-plan.md#d9), [D59](planning/2026-11-14-store-modules-plan.md#d59) |
+| <a id="ad-094"></a>**AD-094** | Content names | `content_name(key, data)`: HMAC-SHA256 of the data under a key derived from the store key, as 64 hex digits. It names an original uniquely and reveals nothing — not even to someone holding the same report, as a plain hash would | [D6](planning/2026-11-11-flex-store-plan.md#d6), [D14](planning/2026-11-11-flex-store-plan.md#d14) |
 | <a id="ad-086"></a>**AD-086** | DuckDB's key | `database_key(key)` derives, by HKDF-SHA256 labelled for DuckDB, the text handed to DuckDB as its `ENCRYPTION_KEY`. The store key itself never reaches DuckDB, so neither use of it can weaken the other | [D8](planning/2026-11-11-flex-store-plan.md#d8), [D22](planning/2026-11-11-flex-store-plan.md#d22) |
-| <a id="ad-087"></a>**AD-087** | Testing seams | The scrypt cost is a parameter, kept in the file, so tests lock with a cheap one. The credential store is chosen in one function, which tests replace with one in memory; one test per platform checks the real Credential Manager or Keychain, skipped where the keychain is locked (an SSH session) | |
+| <a id="ad-087"></a>**AD-087** | Testing seams | The scrypt cost is a parameter — of `lock_key`, and of the store's `create`, `change_password` and `start_over` — kept in the file, so tests lock with a cheap one. The credential store is chosen in one function, which tests replace with one in memory; one test per platform checks the real Credential Manager or Keychain, skipped where the keychain is locked (an SSH session) | |
 
 ### Locks
 
@@ -238,6 +245,21 @@ Every module imports `model.py` ([AD-013](#ad-013)); those imports are not drawn
 |---|---|---|---|
 | <a id="ad-089"></a>**AD-089** | `locked(path)` | `with locked(path):` holds an exclusive lock on the file, creating it if it is missing; lock files are never deleted. A lock held elsewhere — by another process, or by another open of the file in this one — is refused at once with `Busy`, never waited for. It is released when the block ends, and by the OS when the process dies, so a crash leaves no stale lock. Nothing is written into the file, so a refusal can say only that another IBKR to Xero window or command is working there | [D21](planning/2026-11-11-flex-store-plan.md#d21), [D60](planning/2026-11-14-store-modules-plan.md#d60) |
 | <a id="ad-090"></a>**AD-090** | The mechanism | Windows: `msvcrt.locking` on the file's first byte, held per handle. macOS: `flock`, held per open file — not `lockf`, whose locks belong to the whole process: two opens in one process would not exclude each other, and closing any handle would drop them | [D21](planning/2026-11-11-flex-store-plan.md#d21) |
+
+### The folder
+
+| Item | Element | Design | Decisions |
+|---|---|---|---|
+| <a id="ad-095"></a>**AD-095** | Where and what | `default_folder()`: `%LOCALAPPDATA%\IBKR to Xero` on Windows, `~/Library/Application Support/IBKR to Xero` on macOS; every call takes the folder, so a store set aside and a test's are the same code. In it `store.key`, `store.lock`, `index.enc`, and per ledger a folder of 16 random hex digits holding `ledger.lock`, `ledger.enc`, `originals/<content name>.enc`, `data.db` and `exports.db`. No name says anything of the accounts or periods inside | [D7](planning/2026-11-11-flex-store-plan.md#d7), [D14](planning/2026-11-11-flex-store-plan.md#d14) |
+| <a id="ad-096"></a>**AD-096** | Creating and opening | `Store.create(folder, password)` makes a key and a store ID, an empty index, then `store.key` — a store exists once `store.key` does — and refuses a folder that has one (`StoreExists`). `Store.open(folder, password=None)` uses the remembered key if it opens `store.key`, else the password: none is `PasswordNeeded`, a wrong one `WrongPassword`; no `store.key` is `NoStore`; a damaged `store.key` or index `StoreUnreadable`. Remembering is separate: `store.remembered` and `store.set_remembered(on)`, whose failure is `CannotRemember` and leaves the store open | [D9](planning/2026-11-11-flex-store-plan.md#d9), [D59](planning/2026-11-14-store-modules-plan.md#d59) |
+| <a id="ad-097"></a>**AD-097** | The password | `change_password(new)` asks for no current one and rewrites `store.key` alone, with the same key and store ID, so a remembered key still opens it | [D9](planning/2026-11-11-flex-store-plan.md#d9), [D63](planning/2026-11-14-store-modules-plan.md#d63) |
+| <a id="ad-098"></a>**AD-098** | Starting over | `Store.start_over(folder, password)` renames the folder to `<its name> (password forgotten <date>)` beside it — ` 2`, ` 3` appended for another the same day — and creates a new store; nothing is deleted, and the old store's remembered key, if any, is left. A folder in use (Windows refuses the rename) is `StoreBusy` | [D9](planning/2026-11-11-flex-store-plan.md#d9), [D62](planning/2026-11-14-store-modules-plan.md#d62) |
+| <a id="ad-099"></a>**AD-099** | Ledgers | `index.enc`, sealed as `index`, lists each ledger's ID, display name and IB account IDs. `ledgers()`; `ledger(id)` and `find_ledger(name)`, one `Ledger` object per ledger and store; `add_ledger(name)`, `rename_ledger(id, name)`, `set_accounts(id, accounts)` and `remove_ledger(id)`, each under the store lock. Names are trimmed, non-empty and unique ignoring case (`NameTaken`). A new ledger's folder and settings are written before the index names it; removing one takes its lock too, takes it out of the index, then deletes its folder | [D14](planning/2026-11-11-flex-store-plan.md#d14), [D20](planning/2026-11-11-flex-store-plan.md#d20), [D61](planning/2026-11-14-store-modules-plan.md#d61) |
+| <a id="ad-100"></a>**AD-100** | Ledger settings | `ledger.settings()` → `LedgerSettings`: the Flex token and query ID (empty until entered), each IB account's base currency, each currency's last date already in Xero (or none), and the GST rate, 10% by default. `save_settings(settings)`, under the ledger lock. Sealed as `ledger:<id>`, JSON with a format number; a field a later version adds takes its default in an older file | [D9](planning/2026-11-11-flex-store-plan.md#d9), [D12](planning/2026-11-11-flex-store-plan.md#d12), [D20](planning/2026-11-11-flex-store-plan.md#d20), [D57](planning/2026-11-11-flex-store-plan.md#d57) |
+| <a id="ad-101"></a>**AD-101** | Originals | `add_original(data)` → its content name, sealed as `original:<ledger id>/<name>` under the ledger lock; the same report twice is stored once. `originals()` lists the names, `read_original(name)` returns the bytes; one that does not open is `StoreUnreadable`, naming it | [D6](planning/2026-11-11-flex-store-plan.md#d6), [D14](planning/2026-11-11-flex-store-plan.md#d14) |
+| <a id="ad-102"></a>**AD-102** | Databases | `ledger.data_db` and `ledger.exports_db` are the paths; `ledger.database_key` is the store's key for DuckDB ([AD-086](#ad-086)) | [D6](planning/2026-11-11-flex-store-plan.md#d6), [D22](planning/2026-11-11-flex-store-plan.md#d22) |
+| <a id="ad-103"></a>**AD-103** | Locks | `with store.locked():` holds `store.lock`, `with ledger.locked():` its `ledger.lock`. Reentrant within the thread holding them, so a method taking a lock itself works inside a caller's block; another thread, object or process is refused. A refusal is `StoreBusy`: "Another IBKR to Xero window or command is working on this account" — or "on the store" | [D21](planning/2026-11-11-flex-store-plan.md#d21), [D60](planning/2026-11-14-store-modules-plan.md#d60) |
+| <a id="ad-104"></a>**AD-104** | Writing a file | To a temporary file beside it, flushed to disk, then renamed over it: a crash leaves the old file or the new, never part of either | [D6](planning/2026-11-11-flex-store-plan.md#d6) |
 
 ## 12. Distribution
 

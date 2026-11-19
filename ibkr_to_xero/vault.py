@@ -16,6 +16,7 @@ Implements: AD-081, AD-087
 from __future__ import annotations
 
 import base64
+import hashlib
 import hmac
 import json
 import os
@@ -100,6 +101,15 @@ def new_store_id() -> str:
     Implements: AD-082
     """
     return secrets.token_hex(4)
+
+
+def content_name(key: bytes, data: bytes) -> str:
+    """A name for `data` that reveals nothing, even to someone holding the same data.
+
+    Implements: AD-094
+    """
+    _check_key(key)
+    return hmac.new(_derive(key, b"content names", KEY_BYTES), data, hashlib.sha256).hexdigest()
 
 
 def database_key(key: bytes) -> str:

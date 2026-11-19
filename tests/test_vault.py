@@ -14,7 +14,6 @@ import json
 import subprocess
 import sys
 
-import keyring.errors
 import pytest
 
 from ibkr_to_xero import vault
@@ -54,6 +53,17 @@ def test_new_store_ids_are_eight_hex_digits():
     ids = {vault.new_store_id() for _ in range(10)}
     assert len(ids) == 10
     assert all(len(i) == 8 and int(i, 16) >= 0 and i == i.lower() for i in ids)
+
+
+def test_content_names_are_keyed_so_they_reveal_nothing():
+    import hashlib
+
+    name = vault.content_name(KEY, b"<report/>")
+    assert name == vault.content_name(KEY, b"<report/>")
+    assert len(name) == 64 and int(name, 16) >= 0
+    assert name != hashlib.sha256(b"<report/>").hexdigest()
+    assert name != vault.content_name(vault.new_key(), b"<report/>")
+    assert name != vault.content_name(KEY, b"<report />")
 
 
 def test_the_database_key_is_derived_text_never_the_key_itself():
@@ -220,40 +230,7 @@ def test_another_format_byte_is_named():
         vault.unseal(KEY, sealed, "index")
 
 
-# --- The remembered key ---------------------------------------------------------
-
-
-class _MemoryKeyring:
-    """keyring's backend interface, in memory. Not a `KeyringBackend` subclass:
-    those register themselves with keyring, process-wide."""
-
-    def __init__(self):
-        self.entries: dict[tuple[str, str], str] = {}
-        self.fail = False
-
-    def _maybe_fail(self):
-        if self.fail:
-            raise keyring.errors.KeyringError("the credential store is locked")
-
-    def get_password(self, service, username):
-        self._maybe_fail()
-        return self.entries.get((service, username))
-
-    def set_password(self, service, username, password):
-        self._maybe_fail()
-        self.entries[(service, username)] = password
-
-    def delete_password(self, service, username):
-        self._maybe_fail()
-        if self.entries.pop((service, username), None) is None:
-            raise keyring.errors.PasswordDeleteError("not found")
-
-
-@pytest.fixture
-def memory_keyring(monkeypatch):
-    backend = _MemoryKeyring()
-    monkeypatch.setattr(vault, "_backend", lambda: backend)
-    return backend
+# --- The remembered key (memory_keyring: conftest.py) ------------------------------
 
 
 def test_a_remembered_key_comes_back(memory_keyring):
