@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from . import locks, vault
+from . import gst, locks, vault
 
 APP_FOLDER = "IBKR to Xero"
 STORE_KEY = "store.key"
@@ -43,7 +43,7 @@ ORIGINALS = "originals"
 DATA_DB = "data.db"
 EXPORTS_DB = "exports.db"
 
-DEFAULT_GST_RATE = Decimal("0.10")  # Australia's; a ledger setting (D57)
+DEFAULT_GST_RATE = gst.DEFAULT_RATE  # Australia's; a ledger setting (D57)
 
 _INDEX_FORMAT = 1
 _SETTINGS_FORMAT = 1

@@ -22,6 +22,7 @@ import collections
 import datetime as dt
 from decimal import Decimal
 
+from .gst import fee_gst
 from .model import (
     CURRENCY_RE,
     AssetClass,
@@ -129,7 +130,8 @@ def _convert_forex_trade(trade: Trade, out: dict[str, list[OutputRow]]) -> None:
     date = trade.when.date()
     price = _fmt_plain(trade.price) if trade.price is not None else ""
     description = f"{_signed_qty(trade)} {pair}{_labels(trade)} price: {price}"
-    for currency, amount in ((base, trade.quantity), (quote, trade.proceeds)):
+    legs = ((base, trade.quantity, "fx-base"), (quote, trade.proceeds, "fx-quote"))
+    for currency, amount, leg in legs:
         out.setdefault(currency, []).append(
             OutputRow(
                 date=date,
@@ -137,6 +139,8 @@ def _convert_forex_trade(trade: Trade, out: dict[str, list[OutputRow]]) -> None:
                 description=description,
                 reference=AssetClass.FOREX.value,
                 source_section="Trades",
+                source_id=trade.id,
+                leg=leg,
             )
         )
     if trade.commission != 0:
@@ -147,6 +151,8 @@ def _convert_forex_trade(trade: Trade, out: dict[str, list[OutputRow]]) -> None:
                 description=f"{pair} commission: {_fmt_comm(trade.commission)}",
                 reference="FX-FEE",
                 source_section="Trades",
+                source_id=trade.id,
+                leg="fx-fee",
             )
         )
 
@@ -169,6 +175,7 @@ def _convert_trades(statement: Statement, out: dict[str, list[OutputRow]]) -> No
                     f"{_labels(trade)} commission: {_fmt_comm(trade.commission)}",
                     reference=trade.asset_class.value,
                     source_section="Trades",
+                    source_id=trade.id,
                 )
             )
         else:
@@ -182,6 +189,7 @@ def _convert_trades(statement: Statement, out: dict[str, list[OutputRow]]) -> No
                     description=_trade_description(trade, duty),
                     reference=trade.asset_class.value,
                     source_section="Trades",
+                    source_id=trade.id,
                 )
             )
 
@@ -194,7 +202,7 @@ def _convert_corporate_actions(statement: Statement, out: dict[str, list[OutputR
     Report's Trades (Sales)/(Purchase) components, so these rows are
     cross-checked as part of the trades bucket.
 
-    Implements: AD-046 (with fee_gst and _convert_cash_txns)
+    Implements: AD-046 (with _convert_cash_txns and gst.fee_gst)
     """
     for action in statement.corporate_actions:
         out.setdefault(action.currency, []).append(
@@ -204,34 +212,13 @@ def _convert_corporate_actions(statement: Statement, out: dict[str, list[OutputR
                 description=action.description,
                 reference="CORP",
                 source_section="Corporate Actions",
+                source_id=action.id,
             )
         )
 
 
-def fee_gst(statement: Statement) -> dict[str, Decimal]:
-    """GST linked to a fee in this statement: fee id -> GST amount (plan D19).
-
-    Such GST is folded into the fee's row. GST naming no record here is left
-    alone — it is the GST inside trade commissions, which reconcile.py
-    verifies — but GST naming a cash transaction that is not a fee would be
-    folded into the wrong bucket => reject.
-    """
-    txns = {txn.id: txn for txn in statement.cash_txns}
-    linked: dict[str, Decimal] = {}
-    for item in statement.tax_items:
-        if item.kind is not TaxKind.GST or item.taxed_id not in txns:
-            continue
-        txn = txns[item.taxed_id]
-        if txn.kind is not CashKind.FEE or txn.currency != item.currency:
-            raise StatementError(
-                f"{item.where}: GST on {txn.where} ({txn.kind.value}, {txn.currency}); "
-                f"only GST on fees in their own currency is supported"
-            )
-        linked[txn.id] = linked.get(txn.id, Decimal(0)) + item.amount
-    return linked
-
-
 def _convert_cash_txns(statement: Statement, out: dict[str, list[OutputRow]]) -> None:
+    # Implements: AD-105
     gst = fee_gst(statement)
     for kind in CashKind:  # declaration order is the output order
         for txn in statement.cash_txns:
@@ -247,6 +234,7 @@ def _convert_cash_txns(statement: Statement, out: dict[str, list[OutputRow]]) ->
                     amount=amount,
                     description=description,
                     source_section=kind.value,
+                    source_id=txn.id,
                 )
             )
 

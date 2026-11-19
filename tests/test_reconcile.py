@@ -371,3 +371,36 @@ def test_missing_commission_adjustment_is_rejected():
     # Sanity check that the trades bucket really is what catches this.
     with pytest.raises(ReconciliationError, match=r"section 'Trades'.*off by 0.31"):
         _pipeline(_commission_adjustment_statement(with_section=False))
+
+
+# --- The GST rate is a parameter (plan D57) ----------------------------------------
+
+_FEES_WITH_15_PERCENT_GST = [
+    ("Starting Cash", "100"),
+    ("Other Fees", "-20"),
+    ("GST", "-3"),
+    ("Ending Cash", "77"),
+]
+
+
+def test_gst_at_the_rate_given():
+    statement = _gst_statement(_FEES_WITH_15_PERCENT_GST)
+    converted = {"AUD": [_fee("-20", "Withdrawal Fee")]}
+    (result,) = reconcile(statement, converted, gst_rate=Decimal("0.15"))
+    assert "Withdrawal Fee (excl. GST 3.00)" in [r.description for r in result.rows]
+    assert any("attributed as 15% of all Fees row(s)" in n for n in result.notes)
+
+
+def test_gst_at_another_rate_is_rejected_naming_the_rate():
+    statement = _gst_statement(_FEES_WITH_15_PERCENT_GST)
+    converted = {"AUD": [_fee("-20", "Withdrawal Fee")]}
+    with pytest.raises(ReconciliationError, match=r"10% GST on Fees rows.*\(10%: -2\.00\)"):
+        reconcile(statement, converted)
+
+
+def test_rounding_keeps_where_each_row_came_from():
+    statement = _gst_statement([("Starting Cash", "0"), ("Other Fees", "-1.234"), ("Ending Cash", "-1.234")])
+    fee = OutputRow(date=dt.date(2026, 6, 10), amount=Decimal("-1.234"), description="fee",
+                    source_section="Fees", source_id="42")
+    (result,) = reconcile(statement, {"AUD": [fee]})
+    assert [(r.amount, r.source_id) for r in result.rows] == [(Decimal("-1.23"), "42")]

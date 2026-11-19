@@ -131,6 +131,22 @@ def test_forex_legs_and_fee_wording():
     assert usd_fee.reference == "FX-FEE"
 
 
+def test_rows_name_their_record_and_forex_its_leg():
+    statement = builders.statement(
+        trades=[
+            builders.trade(line_no=3),
+            builders.trade(asset_class=AssetClass.FOREX, symbol="AUD.USD", quantity="10000",
+                           price="0.6612", proceeds="-6612", commission="-2", line_no=4),
+        ],
+        cash_txns=[builders.cash_txn(line_no=7)],
+    )
+    converted = convert(statement)
+    assert [(r.source_id, r.leg) for r in converted["AUD"]] == [("4", "fx-base")]
+    assert [(r.source_id, r.leg) for r in converted["USD"]] == [
+        ("3", ""), ("4", "fx-quote"), ("4", "fx-fee"), ("7", ""),
+    ]
+
+
 def test_forex_pair_must_quote_in_the_trade_currency():
     with pytest.raises(StatementError, match="cannot understand forex pair 'AUD.JPY'"):
         _convert_trade(asset_class=AssetClass.FOREX, symbol="AUD.JPY")
@@ -197,3 +213,11 @@ def test_cash_transactions_ordered_by_kind_then_source():
     assert [r.description for r in convert(statement)["USD"]] == [
         "fee 1", "fee 2", "dividend", "interest",
     ]
+
+
+def test_gst_percent_shows_the_rate_plainly():
+    from ibkr_to_xero.gst import percent
+
+    assert percent(Decimal("0.1")) == "10%"
+    assert percent(Decimal("0.10")) == "10%"
+    assert percent(Decimal("0.125")) == "12.5%"

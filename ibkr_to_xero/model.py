@@ -205,6 +205,8 @@ class OutputRow:
     payee: str = PAYEE
     reference: str = ""  # "" for real transactions, "MTM"/"ROUNDING" for synthetic
     source_section: str = ""  # statement section the row came from (not written to CSV)
+    source_id: str = ""  # the record it came from; "" for synthetic rows (not written)
+    leg: str = ""  # a forex trade's "fx-base", "fx-quote" or "fx-fee" (not written)
 
 
 @dataclass

@@ -8,22 +8,23 @@ Ending Cash and the cash-flow components in between. Reconciliation enforces:
    cash matches the component sum exactly (to EPS).
 3. Unknown components with nonzero amounts => reject.
 4. "Cash Settling MTM" (no per-transaction rows) becomes a tagged synthetic row.
-5. The GST component must decompose as 10% GST: the part embedded in trade
-   Comm/Fee must be ~0 or ~10% of the Commissions component, and the
-   unattributed remainder (GST on account fees; no dated row in this export)
-   must equal 10% of a subset of the Fees rows — verified, listed in the notes,
+5. The GST component must decompose as GST at the ledger's rate (10% by
+   default): the part embedded in trade Comm/Fee must be ~0 or ~the rate of the
+   Commissions component, and the unattributed remainder (GST on account fees;
+   no dated row in this export) must equal the rate of a subset of the Fees
+   rows — verified, listed in the notes,
    and emitted as one tagged synthetic row. Unverifiable GST => reject, unless
    accept_unattributed_gst is set. When the embedded side verifies, trade rows
    displaying a commission gain an "(incl. GST)" qualifier; when the fee-side
    subset is unambiguous, each contributing fee row gains an
-   "(excl. GST {amount})" qualifier naming its 10% share.
+   "(excl. GST {amount})" qualifier naming its share.
 6. After rounding to 2 dp, any residual within tolerance becomes a tagged
    ROUNDING row; beyond tolerance => reject.
 
 All failures across all currencies are gathered into one ReconciliationError
 so the user sees the complete picture; no output is written on failure.
 
-Implements: AD-017, AD-011, AD-047, AD-049, AD-050, AD-052
+Implements: AD-017, AD-011, AD-047, AD-049, AD-050, AD-051, AD-052
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from __future__ import annotations
 from dataclasses import replace
 from decimal import ROUND_HALF_UP, Decimal
 
-from .convert import fee_gst
+from .gst import DEFAULT_RATE, fee_gst, percent
 from .model import (
     CurrencyResult,
     OutputRow,
@@ -50,9 +51,6 @@ MTM_DESCRIPTION = "Cash Settling MTM (futures)"
 ROUNDING_DESCRIPTION = "Rounding adjustment (2dp vs IB full precision)"
 GST_DESCRIPTION = "GST (not itemised in statement)"
 
-# Australian GST rate: the Cash Report GST component is 10% of AUD trade
-# commissions plus 10% of fees for services supplied by IBKR Australia itself.
-_GST_RATE = Decimal("0.1")
 # Cap on distinct partial sums the GST subset search may hold. Real fee rows
 # repeat amounts heavily (monthly charge/cancel pairs), so the sum space stays
 # near range/granularity; hitting this cap means the input is pathological.
@@ -119,34 +117,34 @@ def _with_gst_qualifier(row: OutputRow) -> OutputRow:
     return replace(row, description=description)
 
 
-def _with_fee_gst_qualifier(row: OutputRow) -> OutputRow:
-    """Mark a fee row whose 10% GST share was verified and attributed.
+def _with_fee_gst_qualifier(row: OutputRow, rate: Decimal) -> OutputRow:
+    """Mark a fee row whose GST share was verified and attributed.
 
     'Withdrawal Fee' -> 'Withdrawal Fee (excl. GST 1.50)'
 
     The GST cash itself is not in this row (it sits in the synthetic GST
-    row), hence "excl."; the amount is displayed unsigned like the 10% it is.
+    row), hence "excl."; the amount is displayed unsigned like the rate it is.
     """
-    gst = _round2(abs(row.amount) * _GST_RATE)
+    gst = _round2(abs(row.amount) * rate)
     return replace(row, description=f"{row.description} (excl. GST {gst})")
 
 
 def _attribute_gst_gap(
-    gap: Decimal, fee_rows: list[OutputRow]
+    gap: Decimal, fee_rows: list[OutputRow], rate: Decimal
 ) -> tuple[str, list[OutputRow]]:
-    """Explain gap as 10% GST on a subset of this currency's Fees rows.
+    """Explain gap as GST at `rate` on a subset of this currency's Fees rows.
 
     Implements: AD-051 (with the GST checks in reconcile)
 
     Returns (status, contributing_rows) with status one of:
-      "full"      — 10% of all fee rows == gap (rows = all of them)
+      "full"      — the rate of all fee rows == gap (rows = all of them)
       "unique"    — exactly one subset matches (rows = that subset)
       "ambiguous" — several subsets match (charge/cancel pairs etc.); the gap
-                    is consistent with 10% GST on fees but no specific rows
+                    is consistent with GST on fees but no specific rows
                     can honestly be named (rows = [])
       "none"      — nothing matches, or the sum space blew past _MAX_GST_SUMS
     """
-    values = [row.amount * _GST_RATE for row in fee_rows]
+    values = [row.amount * rate for row in fee_rows]
     if values and abs(sum(values) - gap) <= EPS:
         return "full", list(fee_rows)
     # Subset-sum over exact Decimals: achievable sum -> (subset count capped
@@ -181,15 +179,18 @@ def reconcile(
     statement: Statement,
     converted: dict[str, list[OutputRow]],
     *,
+    gst_rate: Decimal = DEFAULT_RATE,
     accept_unattributed_gst: bool = False,
 ) -> list[CurrencyResult]:
     """Validate all currencies; return ready-to-write results or raise.
 
     Raises ReconciliationError describing every failed check in every
     currency. Currencies without cash activity yield no result (no file).
+    gst_rate is the ledger's (plan D57), Australia's 10% by default.
     accept_unattributed_gst accepts a GST amount that cannot be verified as
-    10% GST on specific rows (it must still pass the envelope check).
+    GST on specific rows (it must still pass the envelope check).
     """
+    pct = percent(gst_rate)
     report = statement.cash_report
     if not report:
         raise StatementError("statement has no Cash Report; cannot reconcile")
@@ -307,19 +308,19 @@ def reconcile(
 
         # (2c) Embedded-side GST cross-check: the part of the GST component
         # already inside trade Comm/Fee must be ~0 (exchanges whose brokerage
-        # attracts no GST) or ~10% of the Commissions component.
+        # attracts no GST) or ~the rate of the Commissions component.
         if gst != 0:
             embedded = gst - gst_gap
             commissions = components.get("Commissions", Decimal(0))
             if abs(embedded) <= EPS:
                 pass
-            elif abs(embedded - commissions * _GST_RATE) <= EPS:
+            elif abs(embedded - commissions * gst_rate) <= EPS:
                 notes.append(
-                    f"GST embedded in trades {_round2(embedded)} = 10% of "
+                    f"GST embedded in trades {_round2(embedded)} = {pct} of "
                     f"Commissions component {commissions}"
                 )
                 # The check just verified that every commission in this
-                # currency carries 10% GST inside it: say so on each trade
+                # currency carries GST inside it: say so on each trade
                 # row that displays one.
                 rows = [
                     _with_gst_qualifier(row)
@@ -330,14 +331,14 @@ def reconcile(
             elif accept_unattributed_gst:
                 notes.append(
                     f"GST embedded in trades {_round2(embedded)} is neither zero nor "
-                    f"10% of Commissions component {commissions}; accepted unverified "
+                    f"{pct} of Commissions component {commissions}; accepted unverified "
                     f"(--accept-unattributed-gst)"
                 )
             else:
                 errors.append(
                     f"{currency}: GST embedded in trades {embedded} is neither zero "
-                    f"nor 10% of the Commissions component {commissions} (10% would "
-                    f"be {commissions * _GST_RATE}); re-run with "
+                    f"nor {pct} of the Commissions component {commissions} ({pct} would "
+                    f"be {commissions * gst_rate}); re-run with "
                     f"--accept-unattributed-gst to accept it unverified"
                 )
 
@@ -357,21 +358,21 @@ def reconcile(
         # (4b) Synthetic row for GST charged on account fees: real cash with
         # no per-item rows anywhere in this export (IB itemises it only in the
         # separate Statement of Funds report). The amount must be *verified*
-        # as 10% GST on this currency's Fees rows before it is accepted.
+        # as GST on this currency's Fees rows before it is accepted.
         if gst_gap != 0:
             candidates = [
                 r for r in rows if r.source_section == "Fees" and r.amount != 0
             ]
-            status, subset = _attribute_gst_gap(gst_gap, candidates)
+            status, subset = _attribute_gst_gap(gst_gap, candidates, gst_rate)
             if status == "none" and not accept_unattributed_gst:
                 shown = ", ".join(
                     f"{r.date} {r.description!r} {_round2(r.amount)} "
-                    f"(10%: {_round2(r.amount * _GST_RATE)})"
+                    f"({pct}: {_round2(r.amount * gst_rate)})"
                     for r in candidates
                 )
                 errors.append(
                     f"{currency}: unattributed GST {_round2(gst_gap)} cannot be "
-                    f"verified: no combination of 10% GST on Fees rows adds up to it "
+                    f"verified: no combination of {pct} GST on Fees rows adds up to it "
                     f"(candidates: {shown or 'none'}); re-run with "
                     f"--accept-unattributed-gst to accept it as a lump sum"
                 )
@@ -397,7 +398,7 @@ def reconcile(
                 # by identity (amounts and descriptions can repeat).
                 attributed = {id(r) for r in subset}
                 rows = [
-                    _with_fee_gst_qualifier(r) if id(r) in attributed else r
+                    _with_fee_gst_qualifier(r, gst_rate) if id(r) in attributed else r
                     for r in rows
                 ]
                 which = (
@@ -405,16 +406,16 @@ def reconcile(
                 )
                 notes.append(
                     f"unattributed GST {_round2(gst_gap)} automatically attributed "
-                    f"as 10% of {which} Fees row(s):"
+                    f"as {pct} of {which} Fees row(s):"
                 )
                 for r in subset:
                     notes.append(
                         f"  {r.date} {r.description}: {_round2(r.amount)} "
-                        f"-> GST {_round2(r.amount * _GST_RATE)}"
+                        f"-> GST {_round2(r.amount * gst_rate)}"
                     )
             elif status == "ambiguous":
                 notes.append(
-                    "unattributed GST is consistent with 10% GST on the Fees "
+                    f"unattributed GST is consistent with {pct} GST on the Fees "
                     "section, but multiple fee-row combinations match; not itemised"
                 )
             elif accept_unattributed_gst:
@@ -427,16 +428,7 @@ def reconcile(
 
         # (5) Rounding residual, in the 2dp world the accounting system lives in.
         # Implements: AD-048
-        rows = [
-            OutputRow(
-                date=r.date,
-                amount=_round2(r.amount),
-                description=r.description,
-                reference=r.reference,
-                source_section=r.source_section,
-            )
-            for r in rows
-        ]
+        rows = [replace(r, amount=_round2(r.amount)) for r in rows]
         rounded_sum = sum((r.amount for r in rows), Decimal(0))
         residual = _round2(ending) - _round2(starting) - rounded_sum
         tolerance = Decimal("0.005") * (len(rows) + 2)

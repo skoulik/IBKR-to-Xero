@@ -4,7 +4,7 @@
 |---|---|
 | **Document** | How the converter is built: its modules, the data between them, the rules they enforce, and how it ships |
 | **Status** | Current design, maintained with the code: a change to either changes the other in the same commit |
-| **Items** | [AD-001](#ad-001) to [AD-104](#ad-104). The next takes **AD-105** |
+| **Items** | [AD-001](#ad-001) to [AD-106](#ad-106). The next takes **AD-107** |
 
 ## Contents
 
@@ -88,6 +88,7 @@ flowchart TD
     convert["convert.py"]
     reconcile["reconcile.py"]
     writer["writer.py"]
+    gst["gst.py"]
     client["flex_client.py"]
     store["store.py"]
     vault["vault.py"]
@@ -101,7 +102,8 @@ flowchart TD
     parser -->|a Flex report · AD-008| flex
     engine -->|convert · AD-009| convert
     engine -->|reconcile · AD-010| reconcile
-    reconcile -->|fee_gst · AD-011| convert
+    reconcile -->|fee_gst · AD-011| gst
+    convert -->|fee_gst · AD-105| gst
     engine -->|write_results, write_report · AD-012| writer
     client -->|SendRequest, GetStatement · AD-004| ibkr
     vault -->|a remembered key · AD-080| creds
@@ -118,8 +120,9 @@ Every module imports `model.py` ([AD-013](#ad-013)); those imports are not drawn
 | <a id="ad-007"></a>**AD-007** | `engine.py` | `parser.py` | `parse_statement(path)` → `Statement` ([AD-021](#ad-021)) | [D18](planning/2026-11-11-flex-store-plan.md#d18) |
 | <a id="ad-008"></a>**AD-008** | `parser.py` | `flex.py` | `is_flex_report(path)` ([AD-028](#ad-028)), then `parse_flex(path)` → `Statement` for a Flex report | [D18](planning/2026-11-11-flex-store-plan.md#d18) |
 | <a id="ad-009"></a>**AD-009** | `engine.py` | `convert.py` | `convert(Statement)` → currency → `OutputRow`s, unrounded ([section 6](#6-conversion)) | [D42](planning/2026-11-14-earlier-decisions.md#d42) |
-| <a id="ad-010"></a>**AD-010** | `engine.py` | `reconcile.py` | `reconcile(Statement, rows, accept_unattributed_gst=)` → `CurrencyResult`s, or `ReconciliationError` ([AD-052](#ad-052)) | [D23](planning/2026-11-14-earlier-decisions.md#d23), [D42](planning/2026-11-14-earlier-decisions.md#d42) |
-| <a id="ad-011"></a>**AD-011** | `reconcile.py` | `convert.py` | `fee_gst(Statement)` → fee ID → GST folded into it, so reconciliation checks that GST with the fees ([AD-051](#ad-051)) | [D19](planning/2026-11-11-flex-store-plan.md#d19) |
+| <a id="ad-010"></a>**AD-010** | `engine.py` | `reconcile.py` | `reconcile(Statement, rows, gst_rate=, accept_unattributed_gst=)` → `CurrencyResult`s, or `ReconciliationError` ([AD-052](#ad-052)); the engine leaves the rate at its default | [D23](planning/2026-11-14-earlier-decisions.md#d23), [D42](planning/2026-11-14-earlier-decisions.md#d42), [D57](planning/2026-11-11-flex-store-plan.md#d57) |
+| <a id="ad-011"></a>**AD-011** | `reconcile.py` | `gst.py` | `fee_gst(Statement)` → fee ID → GST folded into it, so reconciliation checks that GST with the fees ([AD-051](#ad-051)) | [D19](planning/2026-11-11-flex-store-plan.md#d19) |
+| <a id="ad-105"></a>**AD-105** | `convert.py` | `gst.py` | The same `fee_gst(Statement)`, for the GST to fold into each fee's row ([AD-046](#ad-046)) | [D19](planning/2026-11-11-flex-store-plan.md#d19) |
 | <a id="ad-012"></a>**AD-012** | `engine.py` | `writer.py` | `write_results(results, folder, overwrite=, report_name=)` and `write_report(folder, name, text)` | [D41](planning/2026-11-14-earlier-decisions.md#d41), [D42](planning/2026-11-14-earlier-decisions.md#d42) |
 | <a id="ad-091"></a>**AD-091** | `store.py` | `vault.py` | `store.key`'s contents locked, unlocked and checked; files sealed and opened; content names; the remembered key kept, read and forgotten ([section 11](#the-stores-keys)) | [D8](planning/2026-11-11-flex-store-plan.md#d8), [D9](planning/2026-11-11-flex-store-plan.md#d9) |
 | <a id="ad-092"></a>**AD-092** | `store.py` | `locks.py` | `locked(path)` on `store.lock` and each `ledger.lock` ([AD-089](#ad-089)) | [D21](planning/2026-11-11-flex-store-plan.md#d21) |
@@ -131,6 +134,7 @@ Every module imports `model.py` ([AD-013](#ad-013)); those imports are not drawn
 | <a id="ad-015"></a>**AD-015** | `flex.py` | The Flex report front end ([section 5](#5-reading-a-flex-report)); never imports `parser.py` | [D16](planning/2026-11-11-flex-store-plan.md#d16), [D18](planning/2026-11-11-flex-store-plan.md#d18) |
 | <a id="ad-016"></a>**AD-016** | `convert.py` | Records to per-currency output rows ([section 6](#6-conversion)); unrounded amounts, no synthetic rows | [D28](planning/2026-11-14-earlier-decisions.md#d28), [D38](planning/2026-11-14-earlier-decisions.md#d38) |
 | <a id="ad-017"></a>**AD-017** | `reconcile.py` | The Cash Report checks, synthetic rows and rounding ([section 7](#7-reconciliation)) | [D23](planning/2026-11-14-earlier-decisions.md#d23) |
+| <a id="ad-106"></a>**AD-106** | `gst.py` | The GST rate's default, Australia's 10%, and the GST a source links to its fees; shared by conversion and reconciliation, so neither depends on the other | [D19](planning/2026-11-11-flex-store-plan.md#d19), [D57](planning/2026-11-11-flex-store-plan.md#d57) |
 | <a id="ad-018"></a>**AD-018** | `writer.py` | The CSV files and the report file ([section 8](#8-output)); the only module besides the front ends that writes files | [D25](planning/2026-11-14-earlier-decisions.md#d25), [D41](planning/2026-11-14-earlier-decisions.md#d41) |
 | <a id="ad-019"></a>**AD-019** | `engine.py` | The one entry point every front end drives ([AD-059](#ad-059)); never prints | [D42](planning/2026-11-14-earlier-decisions.md#d42) |
 | <a id="ad-020"></a>**AD-020** | `flex_client.py` | Runs a Flex query over HTTPS ([section 10](#10-the-flex-web-service-client)); no other I/O | [D11](planning/2026-11-11-flex-store-plan.md#d11), [D15](planning/2026-11-11-flex-store-plan.md#d15) |
@@ -147,7 +151,7 @@ Every module imports `model.py` ([AD-013](#ad-013)); those imports are not drawn
 | <a id="ad-023"></a>**AD-023** | `CashKind` | The buckets cash transactions are checked in, in output order: Fees, Deposits & Withdrawals, Dividends, Withholding Tax, Interest, Commission Adjustments; each value is the bucket's name in notes and errors | [D28](planning/2026-11-14-earlier-decisions.md#d28) |
 | <a id="ad-024"></a>**AD-024** | `AssetClass` | Stocks, options, futures, bonds and forex; the value is the output's Reference tag — `STOCK`, `OPTION`, `FUTURE`, `BOND`, `FX` | [D38](planning/2026-11-14-earlier-decisions.md#d38) |
 | <a id="ad-025"></a>**AD-025** | `TaxKind` | Stamp duty — inside its trade's commission, for display and checks only — and GST, cash of its own, on the item its `taxed_id` names | [D19](planning/2026-11-11-flex-store-plan.md#d19) |
-| <a id="ad-026"></a>**AD-026** | `OutputRow`, `CurrencyResult` | A row is a date, an amount (unrounded until [AD-048](#ad-048)), a description, the payee "Interactive Brokers", a Reference tag, and the section it came from (not written). A result is one currency's rows, its Starting and Ending Cash, and notes on what was verified or synthesised | [D25](planning/2026-11-14-earlier-decisions.md#d25), [D29](planning/2026-11-14-earlier-decisions.md#d29), [D30](planning/2026-11-14-earlier-decisions.md#d30) |
+| <a id="ad-026"></a>**AD-026** | `OutputRow`, `CurrencyResult` | A row is a date, an amount (unrounded until [AD-048](#ad-048)), a description, the payee "Interactive Brokers", a Reference tag, and — not written — the section and the record it came from, and for a forex trade its leg (`fx-base`, `fx-quote`, `fx-fee`); synthetic rows name no record. A result is one currency's rows, its Starting and Ending Cash, and notes on what was verified or synthesised | [D25](planning/2026-11-14-earlier-decisions.md#d25), [D29](planning/2026-11-14-earlier-decisions.md#d29), [D30](planning/2026-11-14-earlier-decisions.md#d30) |
 | <a id="ad-027"></a>**AD-027** | Money and errors | Every amount is a `Decimal`, parsed from the source's text, never a float; written plain, without trailing zeros. `StatementError`: the input is malformed or unsupported. `ReconciliationError`: the cash does not add up; its text is a report of every problem | [D23](planning/2026-11-14-earlier-decisions.md#d23), [D24](planning/2026-11-14-earlier-decisions.md#d24) |
 
 ## 4. Reading an Activity Statement
@@ -192,7 +196,7 @@ Every module imports `model.py` ([AD-013](#ad-013)); those imports are not drawn
 | <a id="ad-048"></a>**AD-048** | Rounding | After every check, amounts round half away from zero to the cent; the rounded rows must add up to rounded Ending less rounded Starting Cash within half a cent per row plus one cent, and the residual becomes the `ROUNDING` row; more rejects | [D30](planning/2026-11-14-earlier-decisions.md#d30) |
 | <a id="ad-049"></a>**AD-049** | The Cash Report identity | Per currency, Starting Cash plus the components equals Ending Cash, to a millionth. Components map to the sections whose rows must add up to them: Trades (Sales), Trades (Purchase), Commissions, GST and Transaction Fees to the trades, with corporate actions and commission adjustments; dividends and payments in lieu; withholding tax; broker and bond interest; other fees; deposits, withdrawals and account transfers. Ending Settled Cash and the securities-lending collateral lines are information, outside the sums. A component that maps nowhere and is not zero rejects; so do rows in a currency the Cash Report lacks | [D23](planning/2026-11-14-earlier-decisions.md#d23), [D26](planning/2026-11-14-earlier-decisions.md#d26), [D33](planning/2026-11-14-earlier-decisions.md#d33), [D34](planning/2026-11-14-earlier-decisions.md#d34), [D36](planning/2026-11-14-earlier-decisions.md#d36) |
 | <a id="ad-050"></a>**AD-050** | Stamp-duty check | The stamp-duty items add up to the Transaction Fees component; they are a breakdown of trade commissions, never extra cash | [D35](planning/2026-11-14-earlier-decisions.md#d35) |
-| <a id="ad-051"></a>**AD-051** | GST | The checks use one GST rate: Australia's 10%, until a ledger's own setting supplies it. GST folded into fees ([AD-046](#ad-046)) is checked with the fees. Of the rest of the GST component, the part inside trade commissions must be zero or the rate times the Commissions component — when it is the rate, every trade row showing a commission gains "(incl. GST)". The remainder, GST on fees with no dated row, must have the component's sign and no larger amount, and equal the rate times a subset of the Fees rows: a unique subset puts "(excl. GST {amt})" on each of its rows and lists them in the notes; several matching subsets are noted, not itemised; none rejects. It becomes the `GST` row. `accept_unattributed_gst` accepts GST that cannot be verified, the sign-and-size check still applying | [D37](planning/2026-11-14-earlier-decisions.md#d37), [D57](planning/2026-11-11-flex-store-plan.md#d57) |
+| <a id="ad-051"></a>**AD-051** | GST | The checks use the rate passed in — a ledger's setting, or Australia's 10% by default and in a one-shot conversion — and messages show it. GST folded into fees ([AD-046](#ad-046)) is checked with the fees. Of the rest of the GST component, the part inside trade commissions must be zero or the rate times the Commissions component — when it is the rate, every trade row showing a commission gains "(incl. GST)". The remainder, GST on fees with no dated row, must have the component's sign and no larger amount, and equal the rate times a subset of the Fees rows: a unique subset puts "(excl. GST {amt})" on each of its rows and lists them in the notes; several matching subsets are noted, not itemised; none rejects. It becomes the `GST` row. `accept_unattributed_gst` accepts GST that cannot be verified, the sign-and-size check still applying | [D37](planning/2026-11-14-earlier-decisions.md#d37), [D57](planning/2026-11-11-flex-store-plan.md#d57) |
 | <a id="ad-052"></a>**AD-052** | All or nothing | Every failed check in every currency is gathered into one `ReconciliationError`, and nothing is written. A currency without rows yields no result, and no file | [D23](planning/2026-11-14-earlier-decisions.md#d23), [D25](planning/2026-11-14-earlier-decisions.md#d25) |
 
 ## 8. Output
