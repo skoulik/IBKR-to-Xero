@@ -129,3 +129,16 @@ library module both front ends drive, so `cli.py` and `gui.py` stay thin.
 to write encrypted files, and developing on the published wheel means the tests run on the
 DuckDB that ships, on Windows and the Mac alike. Then the modules, bottom up: `vault.py`,
 `locks.py`, `store.py`, `database.py`.
+
+## Decided while building
+
+- <a id="d59"></a>**D59 — One remembered credential per store, kept on this computer** *(Sergei,
+  2026-11-19)*. Each store has a random ID, readable in `store.key`, and its remembered key
+  (D9) is the credential `IBKR to Xero — store <id>`, user name `store key`. So the current
+  store and one set aside by starting over can both be remembered. Credential Manager and
+  Keychain Access have no groups or folders; the shared prefix is what keeps a user's entries
+  together, and distinct names avoid `keyring`'s renaming of a second entry under the same
+  name to `<user>@<name>`. On Windows the credential is persisted on the local computer, not
+  as `keyring`'s default "Enterprise", which roams to a domain user's other computers:
+  *Remember on this computer* means this one. *Declined:* one fixed entry for every store —
+  simpler, but only one store could be remembered at a time.

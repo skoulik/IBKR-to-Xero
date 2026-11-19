@@ -4,7 +4,7 @@
 |---|---|
 | **Document** | How the converter is built: its modules, the data between them, the rules they enforce, and how it ships |
 | **Status** | Current design, maintained with the code: a change to either changes the other in the same commit |
-| **Items** | [AD-001](#ad-001) to [AD-079](#ad-079). The next takes **AD-080** |
+| **Items** | [AD-001](#ad-001) to [AD-087](#ad-087). The next takes **AD-088** |
 
 ## Contents
 
@@ -19,7 +19,8 @@
 - [8. Output](#8-output)
 - [9. Front ends](#9-front-ends)
 - [10. The Flex Web Service client](#10-the-flex-web-service-client)
-- [11. Distribution](#11-distribution)
+- [11. The store's keys](#11-the-stores-keys)
+- [12. Distribution](#12-distribution)
 
 ## Conventions
 
@@ -53,11 +54,13 @@ flowchart LR
     out[/"Output folder<br/>one CSV per currency<br/>and a report"/]
     ibkr[["IBKR Flex Web Service"]]
     xero[["Xero"]]
+    creds[["Credential Manager<br/>or Keychain"]]
 
     user -->|Runs a conversion · AD-001| app
     app -->|Reads one statement · AD-002| statement
     app -->|Writes, or writes nothing · AD-003| out
     app -->|Fetches a Flex report · AD-004| ibkr
+    app -->|Remembers a store's key · AD-080| creds
 
     style xero stroke-dasharray: 5 5
 ```
@@ -68,6 +71,7 @@ flowchart LR
 | <a id="ad-002"></a>**AD-002** | The app | A statement file | The file the user names or drops: an Activity Statement CSV exported from Client Portal, or an Activity Flex Query report in XML; read, never modified | [D27](planning/2026-11-14-earlier-decisions.md#d27) |
 | <a id="ad-003"></a>**AD-003** | The app | The output folder | Per currency with cash activity, a Xero bank-statement CSV ([AD-053](#ad-053)), and the run report ([AD-056](#ad-056)) — all of it, or nothing at all ([AD-052](#ad-052), [AD-054](#ad-054)) | [D23](planning/2026-11-14-earlier-decisions.md#d23), [D25](planning/2026-11-14-earlier-decisions.md#d25), [D40](planning/2026-11-14-earlier-decisions.md#d40), [D41](planning/2026-11-14-earlier-decisions.md#d41) |
 | <a id="ad-004"></a>**AD-004** | The app | IBKR's Flex Web Service | HTTPS requests carrying the user's Flex token and query ID, and the Flex report returned ([AD-063](#ad-063)) | [D11](planning/2026-11-11-flex-store-plan.md#d11) |
+| <a id="ad-080"></a>**AD-080** | The app | The OS credential store — Windows Credential Manager, the macOS Keychain | A store's key, kept when the user ticks *Remember on this computer* and read back in place of asking for the password; one credential per store ([AD-085](#ad-085)) | [D9](planning/2026-11-11-flex-store-plan.md#d9), [D59](planning/2026-11-14-store-modules-plan.md#d59) |
 
 Xero is drawn dashed: the CSVs are imported into Xero by the user, one per currency's bank
 account; pushing to Xero directly is a later stage (`TODO.md` M5, [D4](planning/2026-11-11-flex-store-plan.md#d4)).
@@ -85,7 +89,9 @@ flowchart TD
     reconcile["reconcile.py"]
     writer["writer.py"]
     client["flex_client.py"]
+    vault["vault.py"]
     ibkr[["IBKR Flex Web Service"]]
+    creds[["Credential Manager<br/>or Keychain"]]
 
     cli -->|run · AD-005| engine
     gui -->|run, off the UI thread · AD-006| engine
@@ -96,6 +102,7 @@ flowchart TD
     reconcile -->|fee_gst · AD-011| convert
     engine -->|write_results, write_report · AD-012| writer
     client -->|SendRequest, GetStatement · AD-004| ibkr
+    vault -->|a remembered key · AD-080| creds
 ```
 
 Every module imports `model.py` ([AD-013](#ad-013)); those imports are not drawn.
@@ -121,6 +128,7 @@ Every module imports `model.py` ([AD-013](#ad-013)); those imports are not drawn
 | <a id="ad-018"></a>**AD-018** | `writer.py` | The CSV files and the report file ([section 8](#8-output)); the only module besides the front ends that writes files | [D25](planning/2026-11-14-earlier-decisions.md#d25), [D41](planning/2026-11-14-earlier-decisions.md#d41) |
 | <a id="ad-019"></a>**AD-019** | `engine.py` | The one entry point every front end drives ([AD-059](#ad-059)); never prints | [D42](planning/2026-11-14-earlier-decisions.md#d42) |
 | <a id="ad-020"></a>**AD-020** | `flex_client.py` | Runs a Flex query over HTTPS ([section 10](#10-the-flex-web-service-client)); no other I/O | [D11](planning/2026-11-11-flex-store-plan.md#d11), [D15](planning/2026-11-11-flex-store-plan.md#d15) |
+| <a id="ad-081"></a>**AD-081** | `vault.py` | The store's keys and the sealing of its files ([section 11](#11-the-stores-keys)): bytes in and out, no files or folders; the only module using `cryptography` and `keyring`. Its errors are `VaultError`s | [D8](planning/2026-11-11-flex-store-plan.md#d8), [D9](planning/2026-11-11-flex-store-plan.md#d9) |
 
 ## 3. The model
 
@@ -209,7 +217,18 @@ Every module imports `model.py` ([AD-013](#ad-013)); those imports are not drawn
 | <a id="ad-066"></a>**AD-066** | The token | Passed in, never stored by the client, and never in a message: no error carries the request URL. Messages are ASCII, which any console prints | [D9](planning/2026-11-11-flex-store-plan.md#d9) |
 | <a id="ad-067"></a>**AD-067** | Testing seams | The HTTP opener, `sleep` and the monotonic clock are parameters, so tests run without the network or waiting. Requests identify themselves as `ibkr2xero/<version>` | |
 
-## 11. Distribution
+## 11. The store's keys
+
+| Item | Element | Design | Decisions |
+|---|---|---|---|
+| <a id="ad-082"></a>**AD-082** | Keys and IDs | `new_key()`: 32 random bytes, one key per store, encrypting everything in it. `new_store_id()`: 8 random hex digits, which name the store's credential ([AD-085](#ad-085)) and reveal nothing | [D9](planning/2026-11-11-flex-store-plan.md#d9), [D59](planning/2026-11-14-store-modules-plan.md#d59) |
+| <a id="ad-083"></a>**AD-083** | `store.key` | `lock_key(key, password, store_id, cost)` gives the file's contents: JSON text holding the format (1), the store ID, the scrypt cost and a random salt, the store key sealed with AES-GCM under the key scrypt derives from the password, and a check value derived from the store key. The password is taken in Unicode NFC, so the same password typed on another system opens it. `unlock_key(contents, password)` returns the key: one the password does not open is `WrongPassword`; contents that do not parse, of another format, or whose key fails the check are `KeyFileUnreadable`. `store_id_of(contents)` reads the ID without the password; `key_opens(contents, key)` checks a key against the check value. The default cost, N=2¹⁷, r=8, p=1, takes about half a second and 128 MiB; being in the file, it can be raised without breaking an existing store. A cost needing over 1 GiB is unreadable rather than attempted | [D9](planning/2026-11-11-flex-store-plan.md#d9), [D14](planning/2026-11-11-flex-store-plan.md#d14) |
+| <a id="ad-084"></a>**AD-084** | Sealed files | `seal(key, data, purpose)` compresses with `zlib`, then encrypts with AES-GCM under a fresh random 96-bit nonce: a format byte (1), the nonce, then the ciphertext and its tag. The purpose — `index`, `ledger:<id>`, `original:<hash>` — is authenticated with the format byte, so one sealed file cannot stand in for another. `unseal(key, sealed, purpose)` returns the data; a file that does not open is `Damaged`, never a wrong password, since the key has been proven by then | [D8](planning/2026-11-11-flex-store-plan.md#d8), [D14](planning/2026-11-11-flex-store-plan.md#d14) |
+| <a id="ad-085"></a>**AD-085** | The remembered key | `remember(store_id, key)` keeps the key, in base64, as the credential `IBKR to Xero — store <id>`, user name `store key`, replacing any earlier one. On Windows it is a generic credential persisted on this computer only; on macOS a login-keychain item, never marked to sync. The store is the OS's own, not `keyring`'s pick of backend, which chains backends once a second is installed and would bypass that persistence. `remembered(store_id)` returns the key or `None`: missing, malformed, or a credential store that fails — each means asking for the password; the caller checks the key with `key_opens`. `forget(store_id)` removes it, a missing one being no error. A credential store that fails to keep or remove a key is a `VaultError` | [D9](planning/2026-11-11-flex-store-plan.md#d9), [D59](planning/2026-11-14-store-modules-plan.md#d59) |
+| <a id="ad-086"></a>**AD-086** | DuckDB's key | `database_key(key)` derives, by HKDF-SHA256 labelled for DuckDB, the text handed to DuckDB as its `ENCRYPTION_KEY`. The store key itself never reaches DuckDB, so neither use of it can weaken the other | [D8](planning/2026-11-11-flex-store-plan.md#d8), [D22](planning/2026-11-11-flex-store-plan.md#d22) |
+| <a id="ad-087"></a>**AD-087** | Testing seams | The scrypt cost is a parameter, kept in the file, so tests lock with a cheap one. The credential store is chosen in one function, which tests replace with one in memory; one test per platform checks the real Credential Manager or Keychain, skipped where the keychain is locked (an SSH session) | |
+
+## 12. Distribution
 
 | Item | Element | Design | Decisions |
 |---|---|---|---|
