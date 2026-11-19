@@ -286,8 +286,8 @@ work can start.*
   same transactions to Xero again. So fetch, export and confirm each lock their ledger,
   open its databases, work, close them and unlock; the GUI rereads before each action. Adding, renaming or removing a ledger
   (`index.enc`) and changing the password (`store.key`) take the store-wide lock, always
-  before a ledger's. An operation on a busy ledger is refused, saying what is running
-  there; other ledgers are unaffected. OS file locks (`msvcrt`, `fcntl`; standard library)
+  before a ledger's. An operation on a busy ledger is refused, saying only that another window
+  or command is working on it (D60, revised 2026-11-19); other ledgers are unaffected. OS file locks (`msvcrt`, `fcntl`; standard library)
   are released when their process dies, so a crash leaves no stale lock (checked on
   Windows, 2026-11-14).
 - <a id="d22"></a>**D22 — The database engine is DuckDB, built with `httpfs` linked in** *(Sergei,

@@ -97,8 +97,7 @@ maps to changes; `data.db` records the one it was built with, and a mismatch reb
   `unseal(key, sealed, purpose)` — `purpose` names the file (`index`, `ledger:<id>`,
   `original:<hash>`) and is authenticated with it, so one sealed file cannot stand in for
   another; `remember(store_id, key)`, `remembered(store_id)`, `forget(store_id)`.
-- `locks`: `with locked(path, what):` — `Busy(what)` when someone else holds it, naming what
-  is running there.
+- `locks`: `with locked(path):` — `Busy` when someone else holds it (D60).
 - `store`: `Store.create(folder, password, remember)`; `Store.open(folder, password=None)` —
   the remembered key first, then the password: `PasswordNeeded`, `WrongPassword`,
   `StoreUnreadable`; `change_password`; `start_over`; `ledgers()`, `add_ledger`,
@@ -142,3 +141,9 @@ DuckDB that ships, on Windows and the Mac alike. Then the modules, bottom up: `v
   as `keyring`'s default "Enterprise", which roams to a domain user's other computers:
   *Remember on this computer* means this one. *Declined:* one fixed entry for every store —
   simpler, but only one store could be remembered at a time.
+- <a id="d60"></a>**D60 — A busy lock says only that it is busy** *(Sergei, 2026-11-19; revises
+  D21)*. Naming what is running would mean keeping that text in the lock file in plain text,
+  where D14 allows nothing readable. So nothing is written into a lock file, and a refused
+  operation says only that another IBKR to Xero window or command is working on that account
+  (or on the store). *Declined:* the text written while the lock is held and emptied on
+  release.

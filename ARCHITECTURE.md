@@ -4,7 +4,7 @@
 |---|---|
 | **Document** | How the converter is built: its modules, the data between them, the rules they enforce, and how it ships |
 | **Status** | Current design, maintained with the code: a change to either changes the other in the same commit |
-| **Items** | [AD-001](#ad-001) to [AD-087](#ad-087). The next takes **AD-088** |
+| **Items** | [AD-001](#ad-001) to [AD-090](#ad-090). The next takes **AD-091** |
 
 ## Contents
 
@@ -19,7 +19,7 @@
 - [8. Output](#8-output)
 - [9. Front ends](#9-front-ends)
 - [10. The Flex Web Service client](#10-the-flex-web-service-client)
-- [11. The store's keys](#11-the-stores-keys)
+- [11. The store](#11-the-store)
 - [12. Distribution](#12-distribution)
 
 ## Conventions
@@ -90,6 +90,7 @@ flowchart TD
     writer["writer.py"]
     client["flex_client.py"]
     vault["vault.py"]
+    locks["locks.py"]
     ibkr[["IBKR Flex Web Service"]]
     creds[["Credential Manager<br/>or Keychain"]]
 
@@ -128,7 +129,8 @@ Every module imports `model.py` ([AD-013](#ad-013)); those imports are not drawn
 | <a id="ad-018"></a>**AD-018** | `writer.py` | The CSV files and the report file ([section 8](#8-output)); the only module besides the front ends that writes files | [D25](planning/2026-11-14-earlier-decisions.md#d25), [D41](planning/2026-11-14-earlier-decisions.md#d41) |
 | <a id="ad-019"></a>**AD-019** | `engine.py` | The one entry point every front end drives ([AD-059](#ad-059)); never prints | [D42](planning/2026-11-14-earlier-decisions.md#d42) |
 | <a id="ad-020"></a>**AD-020** | `flex_client.py` | Runs a Flex query over HTTPS ([section 10](#10-the-flex-web-service-client)); no other I/O | [D11](planning/2026-11-11-flex-store-plan.md#d11), [D15](planning/2026-11-11-flex-store-plan.md#d15) |
-| <a id="ad-081"></a>**AD-081** | `vault.py` | The store's keys and the sealing of its files ([section 11](#11-the-stores-keys)): bytes in and out, no files or folders; the only module using `cryptography` and `keyring`. Its errors are `VaultError`s | [D8](planning/2026-11-11-flex-store-plan.md#d8), [D9](planning/2026-11-11-flex-store-plan.md#d9) |
+| <a id="ad-081"></a>**AD-081** | `vault.py` | The store's keys and the sealing of its files ([section 11](#the-stores-keys)): bytes in and out, no files or folders; the only module using `cryptography` and `keyring`. Its errors are `VaultError`s | [D8](planning/2026-11-11-flex-store-plan.md#d8), [D9](planning/2026-11-11-flex-store-plan.md#d9) |
+| <a id="ad-088"></a>**AD-088** | `locks.py` | Exclusive locks on files ([section 11](#locks)); the standard library only, and nothing else of the store | [D21](planning/2026-11-11-flex-store-plan.md#d21) |
 
 ## 3. The model
 
@@ -217,7 +219,9 @@ Every module imports `model.py` ([AD-013](#ad-013)); those imports are not drawn
 | <a id="ad-066"></a>**AD-066** | The token | Passed in, never stored by the client, and never in a message: no error carries the request URL. Messages are ASCII, which any console prints | [D9](planning/2026-11-11-flex-store-plan.md#d9) |
 | <a id="ad-067"></a>**AD-067** | Testing seams | The HTTP opener, `sleep` and the monotonic clock are parameters, so tests run without the network or waiting. Requests identify themselves as `ibkr2xero/<version>` | |
 
-## 11. The store's keys
+## 11. The store
+
+### The store's keys
 
 | Item | Element | Design | Decisions |
 |---|---|---|---|
@@ -227,6 +231,13 @@ Every module imports `model.py` ([AD-013](#ad-013)); those imports are not drawn
 | <a id="ad-085"></a>**AD-085** | The remembered key | `remember(store_id, key)` keeps the key, in base64, as the credential `IBKR to Xero — store <id>`, user name `store key`, replacing any earlier one. On Windows it is a generic credential persisted on this computer only; on macOS a login-keychain item, never marked to sync. The store is the OS's own, not `keyring`'s pick of backend, which chains backends once a second is installed and would bypass that persistence. `remembered(store_id)` returns the key or `None`: missing, malformed, or a credential store that fails — each means asking for the password; the caller checks the key with `key_opens`. `forget(store_id)` removes it, a missing one being no error. A credential store that fails to keep or remove a key is a `VaultError` | [D9](planning/2026-11-11-flex-store-plan.md#d9), [D59](planning/2026-11-14-store-modules-plan.md#d59) |
 | <a id="ad-086"></a>**AD-086** | DuckDB's key | `database_key(key)` derives, by HKDF-SHA256 labelled for DuckDB, the text handed to DuckDB as its `ENCRYPTION_KEY`. The store key itself never reaches DuckDB, so neither use of it can weaken the other | [D8](planning/2026-11-11-flex-store-plan.md#d8), [D22](planning/2026-11-11-flex-store-plan.md#d22) |
 | <a id="ad-087"></a>**AD-087** | Testing seams | The scrypt cost is a parameter, kept in the file, so tests lock with a cheap one. The credential store is chosen in one function, which tests replace with one in memory; one test per platform checks the real Credential Manager or Keychain, skipped where the keychain is locked (an SSH session) | |
+
+### Locks
+
+| Item | Element | Design | Decisions |
+|---|---|---|---|
+| <a id="ad-089"></a>**AD-089** | `locked(path)` | `with locked(path):` holds an exclusive lock on the file, creating it if it is missing; lock files are never deleted. A lock held elsewhere — by another process, or by another open of the file in this one — is refused at once with `Busy`, never waited for. It is released when the block ends, and by the OS when the process dies, so a crash leaves no stale lock. Nothing is written into the file, so a refusal can say only that another IBKR to Xero window or command is working there | [D21](planning/2026-11-11-flex-store-plan.md#d21), [D60](planning/2026-11-14-store-modules-plan.md#d60) |
+| <a id="ad-090"></a>**AD-090** | The mechanism | Windows: `msvcrt.locking` on the file's first byte, held per handle. macOS: `flock`, held per open file — not `lockf`, whose locks belong to the whole process: two opens in one process would not exclude each other, and closing any handle would drop them | [D21](planning/2026-11-11-flex-store-plan.md#d21) |
 
 ## 12. Distribution
 
