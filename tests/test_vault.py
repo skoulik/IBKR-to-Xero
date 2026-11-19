@@ -293,7 +293,13 @@ def test_windows_credential_manager_keeps_one_local_credential():
     name = f"IBKR to Xero — store {store_id}"
 
     def ours():
-        return [c for c in win32cred.CredEnumerate(None, 0) if store_id in c["TargetName"]]
+        try:
+            everything = win32cred.CredEnumerate(None, 0)
+        except pywintypes.error as error:
+            if error.winerror != 1168:  # ERROR_NOT_FOUND: the user has no credentials at all
+                raise
+            everything = []  # as on a fresh CI runner, once ours is forgotten
+        return [c for c in everything if store_id in c["TargetName"]]
 
     try:
         vault.remember(store_id, vault.new_key())
