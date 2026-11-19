@@ -10,8 +10,17 @@ description = "Convert Interactive Brokers Activity Statements into per-currency
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Sergei Kulik" }]
-requires-python = ">=3.11"
-dependencies = ["cryptography>=42", "keyring>=25"]
+requires-python = ">=3.12"
+# DuckDB is our own build, with httpfs linked in, from this repository's release (plan D22):
+# it is what writes the store's encrypted databases. Elsewhere PyPI's, which reads them
+# but cannot write them offline.
+dependencies = [
+    "cryptography>=42",
+    "keyring>=25",
+    "duckdb @ https://github.com/skoulik/IBKR-to-Xero/releases/download/duckdb-2.0.0-httpfs/duckdb-2.0.0-cp312-abi3-win_amd64.whl ; sys_platform == 'win32' and platform_machine == 'AMD64'",
+    "duckdb @ https://github.com/skoulik/IBKR-to-Xero/releases/download/duckdb-2.0.0-httpfs/duckdb-2.0.0-cp312-abi3-macosx_14_0_arm64.whl ; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "duckdb == 2.0.0 ; (sys_platform != 'win32' and sys_platform != 'darwin') or (sys_platform == 'win32' and platform_machine != 'AMD64') or (sys_platform == 'darwin' and platform_machine != 'arm64')",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]

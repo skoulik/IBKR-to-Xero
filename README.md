@@ -116,7 +116,10 @@ other files, wherever you chose to write them.
 
 ### Or install from source
 
-Requires Python 3.11+. Runtime dependencies (`cryptography`, `keyring`) are installed by pip.
+Requires Python 3.12+. Runtime dependencies (`cryptography`, `keyring`, `duckdb`) are installed
+by pip; on Windows x64 and Apple silicon DuckDB is this project's own build, downloaded from
+its [`duckdb-2.0.0-httpfs`](https://github.com/skoulik/IBKR-to-Xero/releases/tag/duckdb-2.0.0-httpfs)
+release.
 
 ```sh
 git clone https://github.com/skoulik/IBKR-to-Xero.git

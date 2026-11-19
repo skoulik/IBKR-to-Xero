@@ -104,9 +104,11 @@ maps to changes; `data.db` records the one it was built with, and a mismatch reb
   `rename_ledger`, `remove_ledger`; per ledger: `settings` read and saved, `add_original(data)`,
   `originals()`, `read_original(name)`, the paths of its two databases; `with store.locked():`
   and `with ledger.locked():`.
-- `database`: `open_data(path, key)`, `open_exports(path, key)`; `ensure_current(con,
-  originals)` — a rebuild only if the parser version moved; the export record —
-  `unexported_lines(to_date)`, `record_export(...)`, `confirm(file)`.
+- `database`: `Database.open(data_path, exports_path, key)`, both files on one connection;
+  `ensure_current(names, read, gst_rate)` — a rebuild only if the parser version, schema or
+  GST rate moved, else the new reports added; the export record —
+  `unexported_lines(to_date, imported_through)`, `record_export(...)`, `pending_files()`,
+  `confirm(file_id)`. As built; ARCHITECTURE AD-111 to AD-116 hold the detail.
 
 ## Tests
 
@@ -164,3 +166,15 @@ DuckDB that ships, on Windows and the Mac alike. Then the modules, bottom up: `v
   store the day the remembered copy goes (another computer, a Windows password reset). Anyone at
   the logged-in computer could do the same — and could read everything the open store shows
   anyway. *Declined:* the usual current-password check.
+- <a id="d64"></a>**D64 — Python 3.12 or later** *(Sergei, 2026-11-19)*. A source install takes
+  our DuckDB wheels from their release (D22), and they are `cp312-abi3`: one wheel per
+  platform for Python 3.12 and every later version, none for 3.11. The released apps bundle
+  3.12 already. *Declined:* building `cp311` wheels as well, to keep 3.11 — two more long
+  builds per DuckDB version for a Python no shipped app uses.
+- <a id="d65"></a>**D65 — CI tests the store on the platforms that ship** *(Sergei, 2026-11-19)*.
+  We build no DuckDB for Linux, and PyPI's cannot write encrypted files with extension
+  downloads off (D22), so on the release workflow's Linux test job the database tests skip,
+  saying why. The macOS and Windows build jobs, which install the package and so our wheel,
+  run the suite too. *Declined:* leaving the database tested only on our machines, and
+  moving the test job itself to a macOS and Windows matrix — the version check and the
+  draft release hang off it.

@@ -56,7 +56,9 @@ jobs:
           echo "Building version $project_version"
 
       - name: Run the test suite
-        # The statement-dependent tests skip themselves: examples/ is gitignored.
+        # The statement-dependent tests skip themselves: examples/ is gitignored. So do
+        # the database's: Linux gets PyPI's DuckDB, which cannot write encrypted files
+        # offline; the macOS and Windows jobs run them on our build (plan D65).
         run: pytest
 
   draft:
@@ -91,6 +93,10 @@ jobs:
 
       - name: Install build dependencies
         run: python -m pip install --upgrade pip && python -m pip install ".[dev,gui]" pyinstaller
+
+      - name: Run the test suite with the DuckDB that ships
+        # Implements: AD-072 (plan D65)
+        run: pytest
 
       - name: Install Inno Setup
         run: choco install innosetup --no-progress --yes
@@ -144,6 +150,10 @@ jobs:
 
       - name: Install build dependencies
         run: python -m pip install --upgrade pip && python -m pip install '.[dev,gui]' pyinstaller
+
+      - name: Run the test suite with the DuckDB that ships
+        # Before the signing keychain joins the search list. Implements: AD-072 (plan D65)
+        run: pytest
 
       - name: Keychain with the signing identities
         env:

@@ -174,6 +174,42 @@ def parse_flex(path: str | Path) -> Statement:
     return to_statement(root)
 
 
+# Raised whenever what a report maps to changes - here, in convert.py or in
+# reconcile.py: a store's database built with another version is rebuilt from
+# the reports it keeps (plan D6).
+# Implements: AD-118
+PARSER_VERSION = 1
+
+
+@dataclass(frozen=True)
+class FlexReport:
+    """A kept report as the store reads it: the statement, and when IBKR made it."""
+
+    statement: Statement
+    generated_at: dt.datetime
+
+
+def read_flex(data: bytes) -> FlexReport:
+    """Read a Flex report from its bytes, as fetched and kept.
+
+    Implements: AD-117
+    """
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError as exc:
+        raise StatementError(f"not a readable Flex report: {exc}") from exc
+    statement = to_statement(root)
+    generated = _statement_element(root).get("whenGenerated") or ""
+    match = _DATETIME.match(generated)
+    if not match or not match.group(2):
+        raise StatementError(
+            f"the Flex report's whenGenerated {generated!r} is not a date and time; "
+            + _DATE_FORMAT_HINT
+        )
+    generated_at = dt.datetime.strptime(f"{match.group(1)}{match.group(2)}", "%Y%m%d%H%M%S")
+    return FlexReport(statement, generated_at)
+
+
 # --- validation (plan D16) -------------------------------------------------
 
 
