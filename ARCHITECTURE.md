@@ -4,7 +4,7 @@
 |---|---|
 | **Document** | How the converter is built: its modules, the data between them, the rules they enforce, and how it ships |
 | **Status** | Current design, maintained with the code: a change to either changes the other in the same commit |
-| **Items** | [AD-001](#ad-001) to [AD-118](#ad-118). The next takes **AD-119** |
+| **Items** | [AD-001](#ad-001) to [AD-119](#ad-119). The next takes **AD-120** |
 
 ## Contents
 
@@ -297,6 +297,7 @@ Every module imports `model.py` ([AD-013](#ad-013)); those imports are not drawn
 | <a id="ad-076"></a>**AD-076** | What the macOS package installs | The app into `/Applications`, always; the CLI a choice, ticked by default: the package's install script links `/usr/local/bin/ibkr2xero` to the CLI inside the app | [D48](planning/2026-11-14-earlier-decisions.md#d48), [D56](planning/2026-11-14-earlier-decisions.md#d56) |
 | <a id="ad-077"></a>**AD-077** | What the Windows installer installs | The program folder, always; two choices — the GUI's Start-menu shortcut, with an optional desktop one, and the CLI, the folder on `PATH` in the scope installed | [D48](planning/2026-11-14-earlier-decisions.md#d48), [D56](planning/2026-11-14-earlier-decisions.md#d56) |
 | <a id="ad-072"></a>**AD-072** | The release workflow | A `v*` tag runs the tests — on Linux first, where the database's skip, then in the macOS and Windows build jobs on the DuckDB that ships — checks the tag against the package version, creates a draft release and attaches both installers; on macOS it notarises and staples the package, then runs the packaged CLI's `--help` and keeps the packaged app running for 20 seconds. A manual run is a dry run that attaches the installers to the run instead. Nothing is published automatically | [D47](planning/2026-11-14-earlier-decisions.md#d47), [D50](planning/2026-11-14-earlier-decisions.md#d50), [D53](planning/2026-11-14-earlier-decisions.md#d53), [D65](planning/2026-11-14-store-modules-plan.md#d65) |
+| <a id="ad-119"></a>**AD-119** | The test workflow | Every push to `main` and every pull request runs the suite on Linux, macOS and Windows — the release's runners. On Linux the database tests skip; on macOS and Windows they run on the DuckDB that ships. It builds nothing | [D65](planning/2026-11-14-store-modules-plan.md#d65) |
 | <a id="ad-073"></a>**AD-073** | macOS signing material | The signing identities are chosen by SHA-1 in a temporary keychain built from the repository's secrets, deleted when the job ends; notarisation uses an App Store Connect API key from the secrets | [D50](planning/2026-11-14-earlier-decisions.md#d50) |
 | <a id="ad-074"></a>**AD-074** | Version | `pyproject.toml` is the one source of the version: the CLI's `--version`, the window's title, the installers' names and the Windows file properties all read it | [D53](planning/2026-11-14-earlier-decisions.md#d53) |
 | <a id="ad-075"></a>**AD-075** | Test data | Real statements live only in the gitignored `examples/`; tests that need them skip when it is absent, so CI runs on synthetic data alone | [D54](planning/2026-11-14-earlier-decisions.md#d54) |

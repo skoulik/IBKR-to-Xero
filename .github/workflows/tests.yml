@@ -1,0 +1,41 @@
+name: Tests
+
+# Implements: AD-119
+# The suite on every push to main and every pull request, on the three systems:
+# Linux with PyPI's DuckDB, where the database tests skip, saying why; macOS and
+# Windows with the DuckDB wheel the apps ship, where they run (plan D65). The
+# statement-dependent tests skip everywhere, since examples/ is gitignored.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The runners the release workflow builds on, so a pass here predicts one there.
+        os: [ubuntu-latest, windows-2022, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install the package and its test dependencies
+        run: python -m pip install --upgrade pip && python -m pip install ".[dev,gui]"
+
+      - name: Run the test suite
+        run: pytest

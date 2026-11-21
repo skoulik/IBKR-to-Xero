@@ -2,157 +2,80 @@
 
 ## Purpose
 
-Convert an Interactive Brokers **Activity Statement** CSV (multi-section export from IB Portal)
-into **per-currency** transaction CSVs in the Xero bank-statement import format
-(`templates/StatementImportTemplate.csv`: `*Date,*Amount,Payee,Description,Reference,Cheque Number`).
+Convert Interactive Brokers account data into **per-currency** transaction CSVs in Xero's
+bank-statement import format (`templates/StatementImportTemplate.csv`). Two sources: an
+**Activity Statement** CSV downloaded from Client Portal, converted one at a time; and
+**Activity Flex Query** reports fetched from IBKR's Flex Web Service into an encrypted local
+store, from which whatever has not been imported yet is exported (M-FLEX). How it is built is
+[ARCHITECTURE.md](ARCHITECTURE.md); how each decision was reached is in [planning/](planning/).
 
 ## Hard requirements
 
-- **Reconciliation is mandatory.** Per currency, from the `Cash Report` section:
-  `Starting Cash + Σ(output transactions) = Ending Cash`.
-  Any unexplained mismatch, unknown Cash Report component, or unsupported/unknown format
-  ⇒ **reject the whole input** with a detailed per-currency report and write **no** output files.
-  Wrong output is worse than no output.
-- **Sections in scope:** Trades (Stocks, Equity and Index Options — extensible later),
-  Deposits & Withdrawals, Fees, Dividends, Withholding Tax, Interest.
-- **Per-currency output files** (`AUD.csv`, `USD.csv`, ...). Base-currency figures and
-  `Cash FX Translation Gain/Loss` are ignored — no FX conversion.
-- **Cash Settling MTM** (futures cash mark-to-market; no per-transaction rows in the statement)
-  ⇒ one synthetic line per currency: Description `Cash Settling MTM (futures)`,
-  Reference `MTM`, dated at the statement period end.
-- **Rounding residual** (from rounding amounts to 2 dp): if within tolerance
-  (½ cent × number of rounded rows), append one synthetic line tagged `ROUNDING`;
-  if beyond tolerance ⇒ reject.
-- Currencies with no cash activity (Starting = Ending, no rows) ⇒ no file.
-- All money arithmetic in `decimal.Decimal` — never float.
+- **Reconcile or write nothing.** Per currency, `Starting Cash + Σ(output rows) = Ending Cash`
+  from the Cash Report. An unexplained residual, an unknown Cash Report component or an
+  unsupported input rejects the whole input with a per-currency report, and **no** file is
+  written. Wrong output is worse than none.
+- **One CSV per currency** with cash activity. Base-currency figures and FX translation
+  gain/loss are ignored: nothing is converted between currencies.
+- **`decimal.Decimal` for all money**, never float.
 
-## Milestones
+## Open
 
-- [x] **M0 — Scaffolding**: pyproject, `ibkr_to_xero` package, pytest, git init, TODO.md, CLAUDE.md
-- [x] **M1 — Parser**: multi-section IB CSV → typed model (`parser.py`, `model.py`)
-- [x] **M2 — Converter + reconciliation + writer + CLI**: per-currency CSVs validated
-      against `examples/AUD.csv` / `examples/USD.csv`; end-to-end tests
-- [x] **M3 — More asset categories** *(full-FY statement)*: futures (commission rows +
-      Cash Settling MTM), forex (transfer legs in both currency files, tagged `FX`, USD
-      commission tagged `FX-FEE`), bonds (like stocks; coupons/accrued interest via the
-      Interest section), corporate actions (all rows tagged `CORP`, cash via the trades
-      bucket), transaction fees (embedded in trade Comm/Fee — cross-checked, not re-emitted),
-      SYEP collateral lines ignored
-- [x] **M3.1 — Investigate unattributed GST**: research (2026-07-03; findings in
-      `planning/2026-07-03-unattributed-gst-research.md`) confirmed the Activity Statement
-      genuinely does not itemise GST on account fees — dated GST entries exist only in
-      IB's separate *Statement of Funds* report, and the GST/HST/PST Details statement
-      section currently covers Canadian taxes only. Implemented instead: the unattributed
-      GST must verify as exactly 10% GST on a subset of `Fees` rows (contributing rows are
-      listed in the run report; ambiguous combinations accepted but not itemised) and the
-      embedded part as ≈0 or ≈10% of the `Commissions` component; anything unverifiable
-      rejects the input unless `--accept-unattributed-gst` is passed. Future option:
-      accept a Statement of Funds export as a companion input so the synthetic period-end
-      `GST` line can be replaced by dated rows.
-- [x] **M3.5 — Unified trade descriptions** (2026-07-03): one grammar for all trades —
-      `{+|-}{qty} {symbol} [({event})] price: {price} comm: {comm} [({qualifiers})]`
-      with zero fields omitted, lifecycle events from the `Code` column (`assigned`,
-      `expired`), verified `incl. GST` / `incl. stamp duty` commission qualifiers, and the
-      instrument type moved to the Reference column (`STOCK`/`BOND`/`OPTION`/`FUTURE`).
-      Reference outputs in `examples/` regenerated from verified output (Date/Amount
-      proven identical to the hand-made originals, kept as `*.csv.orig`).
-- [ ] **M3.2 — Robustness**: richer error reporting. *Multiple statements in one run was
-      dropped (2026-07-03): it would blur the per-statement all-or-nothing guarantee and
-      the one-statement/one-folder/one-report output model for little gain — users can
-      run the tool per statement (or loop in a script). The cross-statement continuity
-      check (period N+1 Starting Cash == period N Ending Cash) is now part of M-FLEX, where
-      every fetch is checked against the stored one before it.*
-- [ ] **M3.3 — More asset classes**: investigate/add further trade categories such as
-      warrants (also structured products, CFDs, mutual funds as they come up). No example
-      CSV available yet — the strict converter will reject the statement when one first
-      appears, which is the signal to add support.
-- [x] **M3.4 — Forex commission currency** (2026-11-12): the Trades Forex header says
-      `Comm in USD` on a USD-base account, so IB may charge it in the *base* currency with
-      the header naming it (Sergei's expectation). The parser now takes the currency from
-      the column's own name (`Comm in XXX`) and rejects a forex row without exactly one
-      such column, so either way the fee row lands in the right file. Unverified against a
-      non-USD-base statement. A Flex report states each trade's `ibCommissionCurrency`.
-- [x] **M-GUI — Desktop GUI companion** (2026-07-08; plan in
-      `planning/2026-07-08-gui-companion-plan.md`): a one-shot PySide6 window over the
-      same engine. First the pipeline orchestration trapped in `cli.py` (output-dir
-      default rule, zero-transaction filtering, report-text assembly) was extracted into a
-      front-end-agnostic `engine.run(statement_path, RunOptions) -> RunResult`; the CLI is
-      now a thin argv→options→run→print/exit shell. `ibkr_to_xero/gui.py` (`ibkr2xero-gui`
-      entry point, optional `[gui]` extra) drives it on a worker thread with Idle/Busy/
-      Done/Error states, drag-and-drop, and an overwrite-confirm re-run. M4's web/Telegram
-      front-end and the M5 Xero adaptor reuse the same engine — the split is what makes
-      them cheap.
-- [ ] **M-FLEX — Flex Web Service fetch into a local store** (planned 2026-11-11;
-      `planning/2026-11-11-flex-store-plan.md`): fetch from IBKR's Flex Web Service on each
-      run into an encrypted per-user store holding several accounts, its periods checked to
-      join up by cash, and export not-yet-imported transactions as Xero CSVs, counted once the
-      user confirms the import. Engine and CLI first, then the GUI. Flex selects by report
-      date, so periods join with no re-fetching; the field mapping and the query validator's
-      requirements were established from real exports on 2026-11-12 (the plan's I1, I2).
-- [ ] **M4 — Hosting** *(future)*: web (e.g. FastAPI) and/or Telegram bot front-end reusing the
-      same library core (the `engine.run` entry point the GUI already uses); drag-n-drop/upload,
-      or the M-FLEX store for direct fetch from IB
-- [ ] **M5 — Xero adaptor** *(future)*: push results straight to Xero via API instead of CSV import
-- [ ] **M6 — Distribution & release engineering**
-  - [x] **LICENSE**: MIT, added 2026-07-03 (`LICENSE`, `license` in pyproject, README section)
-  - [ ] **CI**: GitHub Actions workflow running `pytest` on push/PR (statement-dependent tests
-        auto-skip since `examples/` is gitignored; consider a small synthetic fixture statement
-        so CI exercises the full pipeline too). Partly covered: the release workflow already
-        gates every build on `pytest`, so a tag cannot ship code that fails the suite —
-        but ordinary pushes and PRs still run nothing.
-  - [x] **Versioning**: bump `pyproject.toml` version per release (semver), tag `vX.Y.Z`.
-        The release workflow refuses to build when the tag and `pyproject.toml` disagree.
-        A CHANGELOG is still open; releases currently use `gh --generate-notes`.
-  - [x] **Self-contained binaries** for non-tech-savvy users, 2026-08-11
-        (`.github/workflows/release.yml` + `packaging/`): on-demand only — a `vX.Y.Z` tag
-        builds a **draft** release, `workflow_dispatch` does a dry run that attaches the
-        installers to the workflow run instead. Both platforms ship one installer offering
-        the GUI, the CLI, or both: Inno Setup on Windows, a `productbuild` package on
-        macOS — Apple silicon only since 2026-11-11 (Sergei's call: the Intel job's
-        stapling kept losing its connection to Apple, and PySide6 has no universal2 wheels,
-        so Intel needed a build of its own; `hostArchitectures="arm64"` makes Installer
-        refuse an Intel Mac up front). A `.dmg` was considered
-        and declined: a disk image is only a mounted folder, so it cannot install the CLI
-        into `/usr/local/bin`, and Gatekeeper treats both formats identically while
-        unsigned. The cost is that macOS has no uninstaller (the format provides none);
-        the README documents the `rm` + `pkgutil --forget` steps instead.
-      - Linux is deliberately **not** built: it would need an AppImage plus a
-        glibc-compatible build container to be worth shipping, and Linux users can
-        `pip install`. Revisit if anyone asks.
-      - **macOS packages are signed and notarised** (2026-11-11), on every run, dry runs
-        included: the app and the CLI by PyInstaller (`--codesign-identity`: hardened
-        runtime, secure timestamp, inside-out), the product package by `productbuild
-        --sign`, then `notarytool` with an App Store Connect API key, `stapler` and an
-        `spctl` assessment; a last step runs the CLI and launches the app from the
-        package's own payload. The identities are Sergei's Developer ID Application and
-        Installer pair (team `Q4KANR5AC3`), selected by SHA-1 in the workflow because older
-        certificates share their common names, and valid to 2027-12-09 — Apple issues them
-        for about a year, so the fingerprints and the `MACOS_CERT_*` secrets are renewed
-        yearly. Without the secrets the workflow fails rather than ship an unsigned
-        package; `build-package.sh` alone still builds unsigned when given no identity.
-      - **Windows is not code-signed**: SmartScreen warns on first run and the README
-        documents the click-through. Clearing it needs an OV certificate on a hardware
-        token (a few hundred a year), which is not held.
-  - [x] **Identifiers on the `com.skoulik` prefix** (2026-11-11; Sergei's convention since
-        2026-10-16): the macOS bundle and package identifiers are
-        `com.skoulik.ibkr-to-xero[.gui|.cli]`, the Windows taskbar AppUserModelID
-        `skoulik.ibkr2xero`. 0.1.0 installed under `com.sergeikulik.*` receipts; the
-        README names only the new ones (Sergei's call). The GUI keeps no preferences, so
-        no Qt organisation name is set and nothing else is keyed on either.
-  - [ ] **The GUI and the CLI in one folder, sharing their files** (decided 2026-11-14,
-        [D56](planning/2026-11-14-earlier-decisions.md#d56); ARCHITECTURE AD-069, AD-076,
-        AD-077). The one-file CLI unpacks everything on every run — over 50 MB once DuckDB is
-        in — and Kaspersky deleted the built `ibkr2xero.exe` as a dropper (2026-08-11). To
-        build before the next release: one PyInstaller spec, both executables over one
-        `_internal` (BrokerAI's `doc_pseudonymiser.spec` is the pattern, `LSBackgroundOnly`
-        fix included); the Windows installer's components become shortcuts and `PATH`; the
-        macOS package installs the app always and links the CLI into `/usr/local/bin`; the
-        README's uninstall steps follow.
-  - [ ] Python users keep `pip install -e .` (already documented in README); pipx/PyPI
-        publishing deliberately **not** pursued for now
+- [ ] **M-FLEX — Flex fetch into a local store** ([plan](planning/2026-11-11-flex-store-plan.md)).
+      Steps 1–4 are done: the typed model, the Flex front end and validator, the Flex
+      client, the store.
+  - [ ] Step 5 — the CLI: fetch, re-fetch, export, confirm, accounts
+        ([D15](planning/2026-11-11-flex-store-plan.md#d15)).
+  - [ ] Step 6 — the GUI, then a release (D15).
+  - [ ] Before that release: the GUI and the CLI in one folder over shared files
+        ([D56](planning/2026-11-14-earlier-decisions.md#d56); AD-069, AD-076, AD-077);
+        `keyring` checked in the frozen build on both platforms, once a CLI command opens a
+        store.
+  - [ ] Once step 5 is done: delete the local `examples/flex-prototype/`.
+- [ ] **Waiting on real data** — each built when an example arrives:
+  - Multi-account Flex reports ([D20](planning/2026-11-11-flex-store-plan.md#d20));
+    rejected until then.
+  - More asset classes — warrants, structured products, CFDs, mutual funds. The converter
+    rejects a statement holding one, which is the signal.
+  - A forex commission on a non-USD-base account: its currency is read from the
+    `Comm in XXX` column's name, unverified on such a statement.
+- [ ] **Activity Statement GST as the Flex path has it.** Where the attribution to fee rows
+      is unambiguous, fold the GST into each fee row, as Flex reports do
+      ([D19](planning/2026-11-11-flex-store-plan.md#d19)), instead of the period-end `GST`
+      row; or accept IB's *Statement of Funds* as a companion input, which dates every GST
+      charge ([research](planning/2026-07-03-unattributed-gst-research.md)). Undecided.
+- [ ] **M6 — Release engineering, what remains:** the Developer ID certificates, their
+      fingerprints in `release.yml` and the `MACOS_CERT_*` secrets renewed before 2027-12-09.
+- [ ] **M4 — Hosting** *(future)*: a web or Telegram front end over `engine.run`, or over the
+      M-FLEX store.
+- [ ] **M5 — Xero adaptor** *(future)*: push to Xero's API instead of a CSV import; Sergei's
+      own setup, a starting point, is [D4](planning/2026-11-11-flex-store-plan.md#d4).
 
-## Input acquisition (stage 1)
+## Not pursued
 
-Local files provided by the user on the command line or dropped on the GUI. Fetching from
-IBKR's Flex Web Service is planned as M-FLEX; upload channels are deferred to M4. TWS and the
-Client Portal trading API carry no statements.
+- **Several statements in one run** (2026-07-03): it would blur the per-statement
+  all-or-nothing guarantee for little gain; the tool runs once per statement. The
+  continuity check it would have brought is part of M-FLEX.
+- **Activity Statement CSVs in the store**: they carry no transaction IDs, so they cannot be
+  merged with Flex data reliably.
+- **A CHANGELOG** (2026-11-21): the commit history is the changelog, and releases use
+  `gh --generate-notes`.
+- **M3.2, richer error reporting** (2026-11-21): dropped, with no concrete case behind it.
+- **A Linux build** ([D51](planning/2026-11-14-earlier-decisions.md#d51)), **Windows code
+  signing** ([D50](planning/2026-11-14-earlier-decisions.md#d50)), **pipx or PyPI** — a
+  source install is `pip install -e .`.
+
+## Done
+
+- **M0–M2** — scaffolding, the Activity Statement parser, conversion, reconciliation, the
+  writer and the CLI.
+- **M3** — futures, forex, bonds, corporate actions, transaction fees, SYEP lines.
+  **M3.1** — unattributed GST verified against fee rows. **M3.4** — a forex commission's
+  currency from its column. **M3.5** — one grammar for trade descriptions.
+- **M-GUI** — the desktop window over `engine.run`
+  ([plan](planning/2026-07-08-gui-companion-plan.md)).
+- **M6** — MIT licence; the version in `pyproject.toml`, which a release tag must match;
+  installers built on demand as draft releases — a signed and notarised macOS package, an
+  Inno Setup installer for Windows; identifiers on `com.skoulik`; the tests on every push to
+  `main` and every pull request, on Linux, macOS and Windows.
+- **v0.2.0** published 2026-11-11.
