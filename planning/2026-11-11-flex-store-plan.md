@@ -356,7 +356,8 @@ unchanged byte for byte against `examples/`.
    `store.key` and the remembered key (D9), the folder layout (D14), ledgers (D20), locks
    (D21). Its modules: [2026-11-14-store-modules-plan.md](2026-11-14-store-modules-plan.md).
 5. **CLI** — fetch (incl. manual re-fetch), export, confirm, ledgers (D15). Its plan:
-   [2026-11-21-store-cli-plan.md](2026-11-21-store-cli-plan.md).
+   [2026-11-21-store-cli-plan.md](2026-11-21-store-cli-plan.md). *Done 2026-11-21*
+   (`operations.py`, `store_cli.py`; checked live).
 6. **GUI**, then release (D15).
 
 ## Established from real Flex exports (2026-11-12)

@@ -480,6 +480,19 @@ class Ledger:
         except vault.Damaged:
             raise StoreUnreadable(f"A fetched report is damaged: {name}.") from None
 
+    def remove_original(self, name: str) -> None:
+        """Take a report out again: one just added that its database would not build from.
+
+        Implements: AD-101
+        """
+        if not _CONTENT_NAME.fullmatch(name):
+            raise ValueError(f"not an original's name: {name!r}")
+        with self.locked():
+            try:
+                (self.folder / ORIGINALS / f"{name}.enc").unlink()
+            except FileNotFoundError:
+                pass
+
     def _original_purpose(self, name: str) -> str:
         return f"original:{self.id}/{name}"
 

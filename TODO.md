@@ -22,16 +22,17 @@ store, from which whatever has not been imported yet is exported (M-FLEX). How i
 ## Open
 
 - [ ] **M-FLEX — Flex fetch into a local store** ([plan](planning/2026-11-11-flex-store-plan.md)).
-      Steps 1–4 are done: the typed model, the Flex front end and validator, the Flex
-      client, the store.
-  - [ ] Step 5 — the CLI: fetch, re-fetch, export, confirm, accounts
-        ([D15](planning/2026-11-11-flex-store-plan.md#d15)).
-  - [ ] Step 6 — the GUI, then a release (D15).
+      Steps 1–5 are done: the typed model, the Flex front end and validator, the Flex
+      client, the store, and the CLI's commands over it.
+  - [ ] Step 6 — the GUI, then a release
+        ([D15](planning/2026-11-11-flex-store-plan.md#d15)); the README's section on fetching
+        comes with it.
   - [ ] Before that release: the GUI and the CLI in one folder over shared files
         ([D56](planning/2026-11-14-earlier-decisions.md#d56); AD-069, AD-076, AD-077);
-        `keyring` checked in the frozen build on both platforms, once a CLI command opens a
-        store.
-  - [ ] Once step 5 is done: delete the local `examples/flex-prototype/`.
+        `keyring` checked in the frozen build on both platforms — `ibkr2xero password
+        --remember` and a `status` after it.
+  - [ ] After the GUI's live checks: delete the local `examples/flex-prototype/`, whose
+        `flexfetch.py` reads the token for them.
 - [ ] **Waiting on real data** — each built when an example arrives:
   - Multi-account Flex reports ([D20](planning/2026-11-11-flex-store-plan.md#d20));
     rejected until then.

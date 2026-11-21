@@ -50,6 +50,7 @@ _TOKEN = {
     1015,  # token is invalid
     1025,  # too many failed attempts
 }
+_NOT_AVAILABLE = 1003  # statement is not available: a day not closed yet, or no business day
 _QUERY = {
     1010,  # legacy Flex Queries are no longer supported
     1014,  # query is invalid
@@ -89,6 +90,14 @@ class FlexQueryError(FlexError):
 
 class FlexUnavailableError(FlexError):
     """IBKR could not be reached, or did not deliver in time; trying later may work."""
+
+
+class FlexNotAvailable(FlexError):
+    """IBKR has no statement for the range (error 1003): it reaches a day not closed
+    yet, or holds no business day (plan I3).
+
+    Implements: AD-065
+    """
 
 
 def _user_agent() -> str:
@@ -193,6 +202,8 @@ class FlexClient:
             raise FlexTokenError(f"{text}; {_TOKEN_HINT}", number)
         if number in _QUERY:
             raise FlexQueryError(f"{text}; {_QUERY_HINT}", number)
+        if number == _NOT_AVAILABLE:
+            raise FlexNotAvailable(text, number)
         if number not in _TRANSIENT:
             raise FlexError(text, number)
         if self._monotonic() + delay > deadline:

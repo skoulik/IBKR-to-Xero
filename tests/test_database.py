@@ -24,7 +24,7 @@ from ibkr_to_xero.model import StatementError
 from ibkr_to_xero.reconcile import reconcile
 
 from .conftest import EXAMPLES
-from .test_flex import _SECTIONS, _cash_report_row, _cash_txn, _trade
+from .test_flex import _SECTIONS, _cash_report_row, _cash_txn, _gst, _trade
 
 
 def _httpfs_linked() -> bool:
@@ -199,6 +199,65 @@ def test_a_report_overlapping_a_stored_one_is_refused_too(db):
     with pytest.raises(BuildFailed, match="overlap"):
         kept.build(db)
     assert len(_keys(db)) == 2
+
+
+def test_a_gap_between_periods_is_refused(db):
+    august = _month(8, trade_id="903", fee_id="103", starting=Decimal("92.5"))
+    with pytest.raises(BuildFailed, match="gap: nothing from 2026-07-01 to 2026-07-31"):
+        Kept(june=JUNE, august=august).build(db)
+
+
+def test_a_report_leaving_a_gap_with_stored_ones_is_refused(db):
+    kept = Kept(june=JUNE)
+    kept.build(db)
+    kept["august"] = _month(8, trade_id="903", fee_id="103", starting=Decimal("92.5"))
+    with pytest.raises(BuildFailed, match="gap"):
+        kept.build(db)
+    assert len(_keys(db)) == 2
+
+
+def test_periods_their_cash_lines_and_notes_are_read_back(db):
+    Kept(june=JUNE, july=JULY).build(db)
+    june, july = db.periods()
+    assert (june.account, june.start, june.end) == ("U0000000", dt.date(2026, 6, 1),
+                                                    dt.date(2026, 6, 30))
+    assert db.cash(june.id, "Ending Cash") == {"USD": Decimal("92.5")}
+    assert db.cash(july.id, "Starting Cash") == {"USD": Decimal("92.5")}
+    assert db.currencies() == ["USD"]
+    assert [line.key for line in db.period_lines(july.id)] == ["U0000000:T:902", "U0000000:C:102"]
+    assert list(db.lines_dated(dt.date(2026, 7, 1), dt.date(2026, 7, 31))) == ["USD"]
+    assert db.notes(["U0000000:T:902"]) == []  # nothing to note in these months
+
+
+def test_the_reconciliations_notes_are_kept(db):
+    gst = _report(
+        CashReport=[_cash_report_row(startingCash=100, otherFees="-1.5", salesTax="-0.15",
+                                     endingCash="98.35")],
+        CashTransactions=[_cash_txn()],
+        SalesTaxes=[_gst()],
+    )
+    Kept(gst=gst).build(db)
+    (note,) = db.notes(_keys(db))
+    assert (note.currency, note.period_start) == ("USD", dt.date(2026, 6, 1))
+    assert "folded" in note.text
+
+
+def test_a_discarded_file_is_exported_again_and_never_confirmed(db):
+    Kept(june=JUNE).build(db)
+    keys = _keys(db)
+    ids = db.record_export(dt.date(2026, 6, 30), "x", {"USD": ("USD.csv", keys)})
+    assert db.export_status(keys) == dict.fromkeys(keys, "pending")
+    assert db.has_exports()
+    db.discard(ids["USD"])
+    assert db.pending_files() == [] and db.export_status(keys) == {}
+    assert _keys(db) == keys
+    with pytest.raises(DatabaseError, match="discarded"):
+        db.confirm(ids["USD"])
+    again = db.record_export(dt.date(2026, 6, 30), "y", {"USD": ("USD.csv", keys)})
+    db.confirm(again["USD"])
+    assert db.export_status(keys) == dict.fromkeys(keys, "confirmed")
+    with pytest.raises(DatabaseError, match="confirmed"):
+        db.discard(again["USD"])
 
 
 def test_a_transaction_in_two_reports_is_refused(db):

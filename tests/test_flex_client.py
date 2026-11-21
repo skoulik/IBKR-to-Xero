@@ -9,6 +9,7 @@ import pytest
 from ibkr_to_xero.flex_client import (
     FlexClient,
     FlexError,
+    FlexNotAvailable,
     FlexQueryError,
     FlexTokenError,
     FlexUnavailableError,
@@ -106,6 +107,14 @@ def test_invalid_query_rejected():
     ibkr = FakeIBKR(_status("Fail", 1014, "Query is invalid."))
     with pytest.raises(FlexQueryError, match="check the query ID"):
         ibkr.client().fetch("1705", JUN1, JUN30)
+
+
+def test_a_range_ibkr_has_not_closed_is_not_available():
+    """Plan I3: a range reaching a day not closed, or holding no business day, is 1003."""
+    ibkr = FakeIBKR(_status("Fail", 1003, "Statement is not available."))
+    with pytest.raises(FlexNotAvailable, match="not available") as excinfo:
+        ibkr.client().fetch("1705", JUN1, JUN30)
+    assert excinfo.value.code == 1003 and len(ibkr.requests) == 1  # not retried
 
 
 def test_unknown_error_code_ends_the_fetch():

@@ -1,6 +1,7 @@
-"""Command-line interface: ibkr2xero <statement.csv|report.xml> [-o OUTDIR].
+"""Command-line interface: ibkr2xero <statement.csv|report.xml> [-o OUTDIR], or
+ibkr2xero COMMAND ... over the store (store_cli.py).
 
-Implements: AD-060, AD-001, AD-005, AD-074
+Implements: AD-060, AD-001, AD-005, AD-074, AD-129
 """
 
 from __future__ import annotations
@@ -13,6 +14,11 @@ from pathlib import Path
 from .engine import RunOptions, run
 from .model import ReconciliationError, StatementError
 
+# The commands over the store (store_cli.py), imported only when one is named: the
+# store's dependencies take longer to load than a one-shot conversion does to run.
+STORE_COMMANDS = ("fetch", "export", "confirm", "refetch", "status", "account", "password",
+                  "start-over")
+
 
 def _app_version() -> str:
     try:
@@ -22,12 +28,23 @@ def _app_version() -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv and argv[0] in STORE_COMMANDS:
+        # Implements: AD-129 — the first word names a command over the store
+        from . import store_cli
+
+        return store_cli.main(argv)
     parser = argparse.ArgumentParser(
         prog="ibkr2xero",
         description=(
             "Convert an IB Activity Statement CSV (or an Activity Flex Query report "
             "in XML) into per-currency Xero import CSVs. "
             "Refuses to write anything unless cash reconciles per currency."
+        ),
+        epilog=(
+            "Reports fetched from IBKR's Flex Web Service are kept in a store, worked on with "
+            f"commands: {', '.join(STORE_COMMANDS)}. `ibkr2xero COMMAND --help` says more. "
+            "A statement file named like a command is given as ./NAME."
         ),
     )
     parser.add_argument(

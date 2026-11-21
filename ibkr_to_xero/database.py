@@ -21,7 +21,7 @@ import datetime as dt
 import os
 import tempfile
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Context, Decimal
 from pathlib import Path
 
@@ -32,7 +32,7 @@ from .flex import PARSER_VERSION, read_flex
 from .model import OutputRow, ReconciliationError, Statement, StatementError
 from .reconcile import reconcile
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # 2: the reconciliation's notes
 EXPORTS_SCHEMA_VERSION = 1
 
 _SCALE = 11  # DECIMAL(38,11): Flex's at most 9 places, and two guard places (D18)
@@ -41,6 +41,7 @@ _STEP = Decimal(1).scaleb(-_SCALE)
 _WIDE = Context(prec=80)  # room to quantize any value below _TOO_LARGE exactly
 _CHUNK = 500  # rows per multi-row INSERT; executemany is far slower in DuckDB
 _SYNTHETIC = ("MTM", "GST", "ROUNDING")
+_LINE_COLUMNS = "l.key, l.currency, l.date, l.report_date, l.amount, l.description, l.reference"
 
 # Only the httpfs linked into our build, never one downloaded or found on disk (D22).
 _CONFIG = {
@@ -82,6 +83,9 @@ CREATE TABLE {db}.line (
     currency VARCHAR NOT NULL, position INTEGER NOT NULL, date DATE NOT NULL,
     report_date DATE NOT NULL, amount DECIMAL(38,11) NOT NULL, description VARCHAR NOT NULL,
     reference VARCHAR NOT NULL, source_id VARCHAR);
+CREATE TABLE {db}.note (
+    period INTEGER NOT NULL, account VARCHAR NOT NULL, currency VARCHAR NOT NULL,
+    position INTEGER NOT NULL, text VARCHAR NOT NULL);
 """
 
 _EXPORTS_SCHEMA = """
@@ -127,6 +131,36 @@ class Report:
     statement: Statement
     generated_at: dt.datetime
     lines: list[tuple[Line, int, str | None]]  # the line, its place, its record's ID
+    notes: list[tuple[str, str]] = field(default_factory=list)  # currency, the reconciliation's note
+
+    def cash(self, which: str) -> dict[str, Decimal]:
+        """Per currency, "Starting Cash" or "Ending Cash"."""
+        return {
+            currency: components.get(which, Decimal(0))
+            for currency, components in self.statement.cash_report.items()
+        }
+
+
+@dataclass(frozen=True)
+class Period:
+    """A stored period of one IB account, the report it came from in use.
+
+    Implements: AD-115
+    """
+
+    id: int
+    account: str
+    start: dt.date
+    end: dt.date
+    generated_at: dt.datetime
+
+
+@dataclass(frozen=True)
+class Note:
+    period_start: dt.date
+    period_end: dt.date
+    currency: str
+    text: str
 
 
 @dataclass(frozen=True)
@@ -161,6 +195,7 @@ def read_report(data: bytes, gst_rate: Decimal) -> Report:
     results = reconcile(statement, convert(statement), gst_rate=gst_rate)
     report_dates = _report_dates(statement)
     lines: list[tuple[Line, int, str | None]] = []
+    notes = [(result.currency, note) for result in results for note in result.notes]
     for result in results:
         for position, row in enumerate(result.rows):
             key, kind = _line_key(statement, result.currency, row)
@@ -180,7 +215,7 @@ def read_report(data: bytes, gst_rate: Decimal) -> Report:
         twice = sorted({k for k in keys if keys.count(k) > 1})
         raise StatementError(f"two rows of the report have one key: {', '.join(twice)}")
     _check_numbers(statement, lines)
-    return Report(statement, flex.generated_at, lines)
+    return Report(statement, flex.generated_at, lines, notes)
 
 
 class Database:
@@ -243,6 +278,11 @@ class Database:
             self._rebuild(names, read, gst_rate)
             return BuildResult(rebuilt=True, added=len(names))
         placed = _place_periods(reports, first_id=self._next_id("data.period"))
+        _check_no_gaps(
+            set(existing)
+            | {(e.report.statement.account, e.report.statement.period_start,
+                e.report.statement.period_end) for e in placed}
+        )
         self._con.execute("BEGIN TRANSACTION")
         try:
             for entry in placed:
@@ -291,6 +331,84 @@ class Database:
         (highest,) = self._con.execute(f"SELECT max(id) FROM {table}").fetchone()
         return (highest or 0) + 1
 
+    # --- Reading data.db ------------------------------------------------------------
+
+    def periods(self) -> list[Period]:
+        """The periods in use — none superseded — by account and date.
+
+        Implements: AD-115
+        """
+        rows = self._con.execute(
+            """
+            SELECT id, account, from_date, to_date, generated_at FROM data.period
+            WHERE superseded_by IS NULL ORDER BY account, from_date
+            """
+        ).fetchall()
+        return [Period(*row) for row in rows]
+
+    def cash(self, period_id: int, which: str) -> dict[str, Decimal]:
+        """A period's "Starting Cash" or "Ending Cash", per currency of its Cash Report."""
+        rows = self._con.execute(
+            "SELECT currency, amount FROM data.cash_report WHERE period = ? AND component = ?",
+            [period_id, which],
+        ).fetchall()
+        return {currency: amount for currency, amount in rows}
+
+    def currencies(self) -> list[str]:
+        """Every currency in the Cash Reports in use (D13)."""
+        rows = self._con.execute(
+            """
+            SELECT DISTINCT c.currency FROM data.cash_report c JOIN data.period p ON c.period = p.id
+            WHERE p.superseded_by IS NULL ORDER BY 1
+            """
+        ).fetchall()
+        return [row[0] for row in rows]
+
+    def period_lines(self, period_id: int) -> list[Line]:
+        """A period's lines, in output order per currency."""
+        rows = self._con.execute(
+            f"SELECT {_LINE_COLUMNS} FROM data.line l WHERE l.period = ? "
+            "ORDER BY l.currency, l.account, l.position",
+            [period_id],
+        ).fetchall()
+        return [Line(*row) for row in rows]
+
+    def lines_dated(self, start: dt.date, end: dt.date) -> dict[str, list[Line]]:
+        """Per currency, in output order, every line dated from `start` to `end` (D10's re-export).
+
+        Implements: AD-116
+        """
+        rows = self._con.execute(
+            f"""
+            SELECT {_LINE_COLUMNS} FROM data.line l JOIN data.period p ON l.period = p.id
+            WHERE l.date BETWEEN ? AND ?
+            ORDER BY l.currency, p.from_date, l.account, l.position
+            """,
+            [start, end],
+        ).fetchall()
+        out: dict[str, list[Line]] = {}
+        for row in rows:
+            line = Line(*row)
+            out.setdefault(line.currency, []).append(line)
+        return out
+
+    def notes(self, keys: Iterable[str]) -> list[Note]:
+        """The reconciliation's notes on the periods and currencies these lines come from."""
+        keys = list(keys)
+        if not keys:
+            return []
+        rows = self._con.execute(
+            """
+            SELECT p.from_date, p.to_date, n.currency, n.text FROM data.note n
+            JOIN data.period p ON n.period = p.id
+            JOIN (SELECT DISTINCT period, currency FROM data.line WHERE key IN (SELECT unnest(?))) s
+                ON s.period = n.period AND s.currency = n.currency
+            ORDER BY n.currency, p.from_date, n.account, n.position
+            """,
+            [keys],
+        ).fetchall()
+        return [Note(*row) for row in rows]
+
     # --- The export record ------------------------------------------------------
 
     def unexported_lines(
@@ -302,8 +420,8 @@ class Database:
         """
         imported_through = imported_through or {}
         rows = self._con.execute(
-            """
-            SELECT l.key, l.currency, l.date, l.report_date, l.amount, l.description, l.reference
+            f"""
+            SELECT {_LINE_COLUMNS}
             FROM data.line l JOIN data.period p ON l.period = p.id
             WHERE l.date <= ? AND l.key NOT IN (
                 SELECT e.line_key FROM exports.exported_line e
@@ -390,11 +508,54 @@ class Database:
             raise DatabaseError(f"There is no exported file {file_id}.")
         if found[0] == "confirmed":
             return
+        if found[0] == "discarded":
+            raise DatabaseError(f"Exported file {file_id} was discarded; it cannot be confirmed.")
         when = when or dt.datetime.now().replace(microsecond=0)
         self._con.execute(
             "UPDATE exports.export_file SET status = 'confirmed', confirmed_at = ? WHERE id = ?",
             [when, file_id],
         )
+
+    def discard(self, file_id: int) -> None:
+        """Mark a pending file not imported: its lines are exported again, and it can
+        never be confirmed (D67).
+
+        Implements: AD-116
+        """
+        found = self._con.execute(
+            "SELECT status FROM exports.export_file WHERE id = ?", [file_id]
+        ).fetchone()
+        if found is None:
+            raise DatabaseError(f"There is no exported file {file_id}.")
+        if found[0] == "confirmed":
+            raise DatabaseError(f"Exported file {file_id} was confirmed; it cannot be discarded.")
+        self._con.execute(
+            "UPDATE exports.export_file SET status = 'discarded' WHERE id = ?", [file_id]
+        )
+
+    def export_status(self, keys: Iterable[str]) -> dict[str, str]:
+        """Of these lines, those in an exported file: "confirmed", else "pending".
+
+        Implements: AD-116
+        """
+        keys = list(keys)
+        if not keys:
+            return {}
+        rows = self._con.execute(
+            """
+            SELECT e.line_key, max(CASE f.status WHEN 'confirmed' THEN 2 ELSE 1 END)
+            FROM exports.exported_line e JOIN exports.export_file f ON e.export_file = f.id
+            WHERE f.status IN ('confirmed', 'pending') AND e.line_key IN (SELECT unnest(?))
+            GROUP BY e.line_key
+            """,
+            [keys],
+        ).fetchall()
+        return {key: "confirmed" if rank == 2 else "pending" for key, rank in rows}
+
+    def has_exports(self) -> bool:
+        """Whether anything has ever been exported."""
+        (count,) = self._con.execute("SELECT count(*) FROM exports.export").fetchone()
+        return count > 0
 
     def _prepare_exports(self) -> None:
         if not _has_table(self._con, "exports", "meta"):
@@ -473,7 +634,29 @@ def _place_periods(reports: list[tuple[str, Report]], first_id: int) -> list[_Pl
                     f"{other.statement.period_start} to {other.statement.period_end})."
                 )
         placed.append(_Placed(ids[name], name, report, superseded_by))
+    _check_no_gaps(
+        (e.report.statement.account, e.report.statement.period_start, e.report.statement.period_end)
+        for e in placed
+    )
     return placed
+
+
+def _check_no_gaps(spans: Iterable[tuple[str, dt.date, dt.date]]) -> None:
+    """Per IB account, the periods cover every day from the first to the last (D69).
+
+    Implements: AD-115
+    """
+    by_account: dict[str, list[tuple[dt.date, dt.date]]] = {}
+    for account, start, end in set(spans):
+        by_account.setdefault(account, []).append((start, end))
+    for account, periods in by_account.items():
+        periods.sort()
+        for (_, end), (start, _) in zip(periods, periods[1:]):
+            if start != end + dt.timedelta(days=1):
+                raise BuildFailed(
+                    f"The kept reports of {account} leave a gap: nothing from "
+                    f"{end + dt.timedelta(days=1)} to {start - dt.timedelta(days=1)}."
+                )
 
 
 def _same_period(a: Statement, b: Statement) -> bool:
@@ -537,6 +720,10 @@ def _write_report(con: duckdb.DuckDBPyConnection, db: str, entry: _Placed) -> No
             f"A kept report ({account}, {statement.period_start} to {statement.period_end}) "
             f"repeats a transaction already stored: {error}"
         ) from None
+    _insert(con, f"{db}.note", [
+        (period, account, currency, position, text)
+        for position, (currency, text) in enumerate(report.notes)
+    ])
 
 
 def _line_key(statement: Statement, currency: str, row: OutputRow) -> tuple[str, str | None]:

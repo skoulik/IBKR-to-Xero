@@ -6,9 +6,10 @@ Implements: AD-018, AD-003
 from __future__ import annotations
 
 import csv
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from .model import CurrencyResult, fmt_number
+from .model import CurrencyResult, OutputRow, fmt_number
 
 HEADER = ["*Date", "*Amount", "Payee", "Description", "Reference", "Cheque Number"]
 
@@ -28,8 +29,26 @@ def write_results(
 
     Implements: AD-053, AD-054
     """
+    return write_files(
+        {f"{result.currency}.csv": result.rows for result in results},
+        out_dir,
+        overwrite=overwrite,
+        report_name=report_name,
+    )
+
+
+def write_files(
+    files: Mapping[str, Sequence[OutputRow]],
+    out_dir: str | Path,
+    overwrite: bool = False,
+    report_name: str | None = None,
+) -> list[Path]:
+    """Write each file name's rows as a Xero CSV, all or nothing as write_results.
+
+    Implements: AD-053, AD-054
+    """
     out_dir = Path(out_dir)
-    targets = [out_dir / f"{result.currency}.csv" for result in results]
+    targets = [out_dir / name for name in files]
     if not overwrite:
         reserved = targets + ([out_dir / report_name] if report_name else [])
         existing = [str(path) for path in reserved if path.exists()]
@@ -39,11 +58,11 @@ def write_results(
             )
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
-    for result, path in zip(results, targets):
+    for rows, path in zip(files.values(), targets):
         with path.open("w", newline="", encoding="utf-8") as fh:
             writer = csv.writer(fh)
             writer.writerow(HEADER)
-            for row in result.rows:
+            for row in rows:
                 writer.writerow(
                     [
                         row.date.isoformat(),
